@@ -5,17 +5,18 @@
 DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 export DEVELOPER_DIR
 
-SWIFT     := swift
-APP       := MiPods-Plus.app
-PRODUCT   := $(shell $(SWIFT) build --show-bin-path)/MiPodsPlus
-BUNDLE_ID ?= com.mipods.plus
+SWIFT       := swift
+SWIFT_FLAGS ?= -c release --arch arm64 --arch x86_64
+APP         := MiPods-Plus.app
+PRODUCT     := $(shell $(SWIFT) build $(SWIFT_FLAGS) --show-bin-path)/MiPodsPlus
+BUNDLE_ID   ?= com.mipods.plus
 
 .PHONY: all build app test run demo stop clean install
 
 all: app
 
 build:
-	$(SWIFT) build
+	$(SWIFT) build $(SWIFT_FLAGS)
 
 test:
 	$(SWIFT) test
