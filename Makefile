@@ -7,7 +7,7 @@ export DEVELOPER_DIR
 
 SWIFT     := swift
 APP       := MiPods-Plus.app
-PRODUCT   := .build/out/Products/Debug/MiPodsPlus
+PRODUCT   := $(shell $(SWIFT) build --show-bin-path)/MiPodsPlus
 BUNDLE_ID ?= com.mipods.plus
 
 .PHONY: all build app test run demo stop clean install
