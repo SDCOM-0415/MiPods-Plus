@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "MiPodsPlus",
-    platforms: [.macOS("14.0")],
+    platforms: [.macOS("12.0")],
     products: [
         .executable(name: "MiPodsPlus", targets: ["MiPodsPlusApp"]),
         .library(name: "MiPodsPlusCore", targets: ["MiPodsPlusCore"])

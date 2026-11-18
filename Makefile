@@ -35,7 +35,7 @@ app: build
 	  '  <key>CFBundlePackageType</key><string>APPL</string>' \
 	  '  <key>CFBundleShortVersionString</key><string>1.0.0</string>' \
 	  '  <key>CFBundleVersion</key><string>1</string>' \
-	  '  <key>LSMinimumSystemVersion</key><string>14.0</string>' \
+	  '  <key>LSMinimumSystemVersion</key><string>12.0</string>' \
 	  '  <key>LSUIElement</key><true/>' \
 	  '  <key>NSBluetoothAlwaysUsageDescription</key><string>MiPods-Plus 需要蓝牙权限来发现并控制小米/Redmi 耳机。</string>' \
 	  '</dict></plist>' > "$(APP)/Contents/Info.plist"

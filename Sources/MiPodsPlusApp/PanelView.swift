@@ -412,7 +412,7 @@ struct PanelView: View {
                             draftEQBands = state.customEQBands
                         }
                     }
-                    .onChange(of: state.customEQBands) { _, newBands in
+                    .onChangeCompat(of: state.customEQBands) { newBands in
                         if !newBands.isEmpty {
                             draftEQBands = newBands
                         }
@@ -574,7 +574,7 @@ struct PanelView: View {
                             controller.findEarbuds(isFindingEarbuds, target: findTarget)
                         } label: {
                             Label(isFindingEarbuds ? "停止查找响铃" : "查找耳机（\(findTarget.displayTitle)响铃）",
-                                  systemImage: isFindingEarbuds ? "bell.slash.fill" : "bell.and.waves.left.and.right")
+                                  systemImage: isFindingEarbuds ? "bell.slash.fill" : CompatSymbols.findEarbuds)
                                 .font(.system(size: 11))
                                 .frame(maxWidth: .infinity)
                         }
@@ -702,13 +702,15 @@ struct PanelView: View {
 
             Spacer()
 
-            Toggle("开机自启", isOn: Binding(
-                get: { controller.launchAtLogin },
-                set: { controller.setLaunchAtLogin($0) }
-            ))
-            .font(.system(size: 11))
-            .toggleStyle(.checkbox)
-            .controlSize(.small)
+            if controller.supportsLaunchAtLogin {
+                Toggle("开机自启", isOn: Binding(
+                    get: { controller.launchAtLogin },
+                    set: { controller.setLaunchAtLogin($0) }
+                ))
+                .font(.system(size: 11))
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+            }
 
             Button {
                 NSApplication.shared.terminate(nil)

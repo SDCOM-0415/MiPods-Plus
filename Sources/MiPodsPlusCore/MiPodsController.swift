@@ -104,7 +104,17 @@ public final class MiPodsController: ObservableObject {
     @Published public var state = MiPodsState()
     @Published public var discoveredDevices: [DiscoveredDevice] = []
     @Published public var activeDeviceID: UUID?
-    @Published public var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @Published public var launchAtLogin: Bool = {
+        if #available(macOS 13.0, *) {
+            return SMAppService.mainApp.status == .enabled
+        }
+        return false
+    }()
+
+    public var supportsLaunchAtLogin: Bool {
+        if #available(macOS 13.0, *) { return true }
+        return false
+    }
 
     private let transport = BLETransport()
     private var connectTimeoutTask: Task<Void, Never>?
@@ -177,12 +187,17 @@ public final class MiPodsController: ObservableObject {
     }
 
     public func setLaunchAtLogin(_ on: Bool) {
-        do {
-            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-        } catch {
-            append("开机自启设置失败：\(error.localizedDescription)")
+        if #available(macOS 13.0, *) {
+            do {
+                if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            } catch {
+                append("开机自启设置失败：\(error.localizedDescription)")
+            }
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        } else {
+            append("开机自启需要 macOS 13 及以上系统")
+            launchAtLogin = false
         }
-        launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 
     // MARK: - Hybrid Authentication
