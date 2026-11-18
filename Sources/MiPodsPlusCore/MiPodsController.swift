@@ -26,12 +26,14 @@ public struct MiPodsState: Sendable, Equatable {
     public var personalANC = false
 
     public var eqPreset: EQPreset = .default
+    public var customEQBands: [EQBand] = EQBand.defaultBands
     public var spatialBits: UInt8 = 0
     public var spatialScene: SpatialScene = .off
     public var wearDetect = false
     public var hotword = false
     public var autoAnswer = false
     public var dualDevice = false
+    public var lowLatency = false
     public var adaptiveSense = false
     public var adaptiveVolume = false
     public var freeTalk: FreeTalkDuration = .off
@@ -69,12 +71,14 @@ public struct MiPodsState: Sendable, Equatable {
         lhs.adaptiveANC == rhs.adaptiveANC &&
         lhs.personalANC == rhs.personalANC &&
         lhs.eqPreset == rhs.eqPreset &&
+        lhs.customEQBands == rhs.customEQBands &&
         lhs.spatialBits == rhs.spatialBits &&
         lhs.spatialScene == rhs.spatialScene &&
         lhs.wearDetect == rhs.wearDetect &&
         lhs.hotword == rhs.hotword &&
         lhs.autoAnswer == rhs.autoAnswer &&
         lhs.dualDevice == rhs.dualDevice &&
+        lhs.lowLatency == rhs.lowLatency &&
         lhs.adaptiveSense == rhs.adaptiveSense &&
         lhs.adaptiveVolume == rhs.adaptiveVolume &&
         lhs.freeTalk == rhs.freeTalk &&
@@ -110,7 +114,7 @@ public final class MiPodsController: ObservableObject {
     private static let preferredDeviceKey = "mipods.plus.preferredDeviceID"
     private static let authedDevicesKey = "mipods.plus.authedDeviceIDs"
     private static let statusConfigIDs: [UInt16] = [
-        0x02, 0x03, 0x04, 0x07, 0x0A, 0x0B, 0x0C, 0x0D, 0x1E, 0x25, 0x29, 0x36, 0x3A, 0x3B, 0x48
+        0x02, 0x03, 0x04, 0x07, 0x0A, 0x0B, 0x0C, 0x0D, 0x1E, 0x25, 0x29, 0x2F, 0x36, 0x37, 0x3A, 0x3B, 0x48
     ]
 
     public static let pollInterval: TimeInterval = 30
@@ -326,10 +330,40 @@ public final class MiPodsController: ObservableObject {
         }
     }
 
-    public func findEarbuds(_ on: Bool) {
+    public func setLowLatency(_ on: Bool) {
+        state.lowLatency = on
         performAuthenticatedWrite { [weak self] in
-            self?.append(on ? "触发查找耳机响铃" : "停止查找耳机响铃")
-            self?.sendSetConfig(0x09, [on ? 0x01 : 0x00, 0x03])
+            self?.sendSetConfig(0x2F, [on ? 0x01 : 0x00])
+        }
+    }
+
+    public func previewCustomEQ(_ bands: [EQBand]) {
+        state.customEQBands = bands
+        state.eqPreset = .custom
+        performAuthenticatedWrite { [weak self] in
+            self?.sendSetConfig(0x37, CustomEQCodec.encodePreview(bands))
+        }
+    }
+
+    public func saveCustomEQ(_ bands: [EQBand]) {
+        state.customEQBands = bands
+        state.eqPreset = .custom
+        performAuthenticatedWrite { [weak self] in
+            self?.sendSetConfig(0x37, CustomEQCodec.encodeSave(bands))
+        }
+    }
+
+    public func resetCustomEQ() {
+        state.customEQBands = EQBand.defaultBands
+        performAuthenticatedWrite { [weak self] in
+            self?.sendSetConfig(0x37, CustomEQCodec.resetPayload)
+        }
+    }
+
+    public func findEarbuds(_ on: Bool, target: FindTarget = .both) {
+        performAuthenticatedWrite { [weak self] in
+            self?.append(on ? "触发查找耳机响铃（\(target.displayTitle)）" : "停止查找耳机响铃")
+            self?.sendSetConfig(0x09, [on ? 0x01 : 0x00, target.rawValue])
         }
     }
 
@@ -607,12 +641,18 @@ public final class MiPodsController: ObservableObject {
                 state.adaptiveANC = rec.value.first == 1
             case 0x29:
                 state.adaptiveSense = rec.value.first == 1
+            case 0x2F:
+                state.lowLatency = rec.value.first == 1
             case 0x36:
                 if rec.value.first == 1, rec.value.count >= 2,
                    let sc = SpatialScene(rawValue: rec.value[1]) {
                     state.spatialScene = sc
                 } else {
                     state.spatialScene = .off
+                }
+            case 0x37:
+                if let bands = CustomEQCodec.parse(rec.value) {
+                    state.customEQBands = bands
                 }
             case 0x3B:
                 state.personalANC = rec.value.first == 1
@@ -640,6 +680,7 @@ public final class MiPodsController: ObservableObject {
         if state.configs[0x25] != nil { caps.insert(.hasAdaptiveANC) }
         if state.configs[0x3B] != nil { caps.insert(.hasPersonalANC) }
         if state.configs[0x07] != nil { caps.insert(.hasEqualizer) }
+        if state.configs[0x37] != nil { caps.insert(.hasCustomEQ) }
         if state.configs[0x1E] != nil { caps.insert(.hasSpatialAudio) }
         if state.configs[0x36] != nil { caps.insert(.hasSceneMode) }
         if state.configs[0x02] != nil { caps.insert(.hasGesture) }
@@ -647,6 +688,7 @@ public final class MiPodsController: ObservableObject {
         if state.configs[0x04] != nil { caps.insert(.hasDualDevice) }
         if state.configs[0x0D] != nil { caps.insert(.hasFreeTalk) }
         if state.configs[0x29] != nil { caps.insert(.hasAdaptiveSense) }
+        if state.configs[0x2F] != nil { caps.insert(.hasLowLatency) }
         if state.configs[0x48] != nil { caps.insert(.hasAdaptiveVolume) }
         if state.isAuthenticated {
             caps.insert(.hasFindMyEarbuds)

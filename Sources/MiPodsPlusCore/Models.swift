@@ -212,6 +212,89 @@ public enum FreeTalkDuration: UInt8, Sendable, CaseIterable, Equatable {
     }
 }
 
+public struct EQBand: Identifiable, Sendable, Equatable {
+    public var id: UInt16 { freq }
+    public let freq: UInt16
+    public var gain: Int
+
+    public init(freq: UInt16, gain: Int) {
+        self.freq = freq
+        self.gain = max(-12, min(12, gain))
+    }
+
+    public var freqLabel: String {
+        freq >= 1000 ? "\(freq / 1000)k" : "\(freq)"
+    }
+
+    public static let defaultBands: [EQBand] = [
+        62, 125, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000
+    ].map { EQBand(freq: $0, gain: 0) }
+}
+
+public enum CustomEQCodec {
+    public static func encodeGain(_ gain: Int) -> UInt8 {
+        let clamped = max(-12, min(12, gain))
+        return clamped >= 0 ? UInt8(clamped) : UInt8((-clamped) + 128)
+    }
+
+    public static func decodeGain(_ raw: UInt8) -> Int {
+        raw < 128 ? Int(raw) : (128 - Int(raw))
+    }
+
+    public static func encodeSave(_ bands: [EQBand]) -> [UInt8] {
+        var v: [UInt8] = [0x01, 0x0A, 0x01, 0x01, 0x01, 0x00, UInt8(bands.count)]
+        for b in bands {
+            v.append(UInt8((b.freq >> 8) & 0xFF))
+            v.append(UInt8(b.freq & 0xFF))
+            v.append(encodeGain(b.gain))
+        }
+        return v
+    }
+
+    public static func encodePreview(_ bands: [EQBand]) -> [UInt8] {
+        var v: [UInt8] = [0x05, 0x01, 0x01, UInt8(bands.count)]
+        for b in bands {
+            v.append(UInt8((b.freq >> 8) & 0xFF))
+            v.append(UInt8(b.freq & 0xFF))
+            v.append(encodeGain(b.gain))
+        }
+        return v
+    }
+
+    public static let resetPayload: [UInt8] = [0x04, 0x01, 0x01, 0x01]
+
+    public static func parse(_ val: [UInt8]) -> [EQBand]? {
+        guard val.count >= 7, val[0] == 0x01 else { return nil }
+        let nameLen = Int(val[5])
+        var pos = 6 + nameLen
+        guard pos < val.count else { return nil }
+        let count = Int(val[pos])
+        pos += 1
+        var bands: [EQBand] = []
+        while pos + 2 < val.count && bands.count < count {
+            let freq = (UInt16(val[pos]) << 8) | UInt16(val[pos + 1])
+            let gain = decodeGain(val[pos + 2])
+            bands.append(EQBand(freq: freq, gain: gain))
+            pos += 3
+        }
+        return bands.isEmpty ? nil : bands
+    }
+}
+
+public enum FindTarget: UInt8, Sendable, CaseIterable, Equatable {
+    case both = 3
+    case left = 1
+    case right = 2
+
+    public var displayTitle: String {
+        switch self {
+        case .both: return "双耳"
+        case .left: return "左耳"
+        case .right: return "右耳"
+        }
+    }
+}
+
 public struct Capabilities: OptionSet, Sendable, Equatable {
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
@@ -236,6 +319,8 @@ public struct Capabilities: OptionSet, Sendable, Equatable {
     public static let hasPersonalANC = Capabilities(rawValue: 1 << 17)
     public static let hasAdaptiveSense = Capabilities(rawValue: 1 << 18)
     public static let hasAdaptiveVolume = Capabilities(rawValue: 1 << 19)
+    public static let hasLowLatency = Capabilities(rawValue: 1 << 20)
+    public static let hasCustomEQ = Capabilities(rawValue: 1 << 21)
 
     public static let none: Capabilities = []
 }

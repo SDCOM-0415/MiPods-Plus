@@ -94,4 +94,24 @@ final class ProtocolTests: XCTestCase {
         XCTAssertTrue(buds.isBudsSeries)
         XCTAssertFalse(clip.isBudsSeries)
     }
+
+    func testCustomEQCodec() {
+        XCTAssertEqual(CustomEQCodec.encodeGain(0), 0)
+        XCTAssertEqual(CustomEQCodec.encodeGain(6), 6)
+        XCTAssertEqual(CustomEQCodec.encodeGain(-4), 132)
+        XCTAssertEqual(CustomEQCodec.decodeGain(132), -4)
+
+        var bands = EQBand.defaultBands
+        bands[0].gain = 5
+        bands[9].gain = -3
+        let encoded = CustomEQCodec.encodeSave(bands)
+        let parsed = CustomEQCodec.parse(encoded)
+        XCTAssertEqual(parsed, bands)
+    }
+
+    func testFindTargetValues() {
+        XCTAssertEqual(FindTarget.left.rawValue, 1)
+        XCTAssertEqual(FindTarget.right.rawValue, 2)
+        XCTAssertEqual(FindTarget.both.rawValue, 3)
+    }
 }

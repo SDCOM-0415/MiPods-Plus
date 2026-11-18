@@ -78,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             button.image = NSImage(systemSymbolName: "earbuds", accessibilityDescription: L10n.appName)
             button.image?.isTemplate = true
             button.imagePosition = .imageLeading
-            button.action = #selector(togglePanel)
+            button.action = #selector(handleStatusClick(_:))
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
@@ -91,7 +91,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         if state.isConnected {
             button.title = " " + state.compactBatteryText
-            button.image = NSImage(systemSymbolName: "earbuds", accessibilityDescription: L10n.appName)
+            let symbol = state.canSwitchNoiseMode && state.noiseMode != .off ? state.noiseMode.symbolName : "earbuds"
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: L10n.appName)
+            button.toolTip = "\(state.displayName) · \(state.noiseModeTitle) (\(state.compactBatteryText))"
             if let lowest = state.lowestBattery, lowest <= 20, !state.isAnyCharging {
                 button.contentTintColor = .systemRed
             } else {
@@ -100,9 +102,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             button.title = ""
             button.contentTintColor = nil
+            button.toolTip = "\(L10n.appName) · \(state.statusDetail)"
             button.image = NSImage(systemSymbolName: "earbuds", accessibilityDescription: L10n.statusDisconnected)
         }
         button.image?.isTemplate = true
+    }
+
+    @objc private func handleStatusClick(_ sender: NSStatusBarButton) {
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            closePanel()
+            showQuickMenu()
+            return
+        }
+        togglePanel()
+    }
+
+    private func showQuickMenu() {
+        let menu = NSMenu()
+        let state = controller.state
+
+        let titleItem = NSMenuItem(title: "\(state.displayName) · \(state.isConnected ? state.compactBatteryText : L10n.statusDisconnected)", action: nil, keyEquivalent: "")
+        titleItem.isEnabled = false
+        menu.addItem(titleItem)
+        menu.addItem(.separator())
+
+        if state.isConnected && state.canSwitchNoiseMode {
+            for mode in state.availableNoiseModes {
+                let item = NSMenuItem(title: mode.localizedTitle, action: #selector(selectQuickNoiseMode(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = mode
+                item.state = state.noiseMode == mode ? .on : .off
+                menu.addItem(item)
+            }
+            menu.addItem(.separator())
+        }
+
+        if state.isConnected && state.capabilities.contains(.hasAdaptiveANC) {
+            let item = NSMenuItem(title: "自适应降噪", action: #selector(toggleQuickAdaptiveANC), keyEquivalent: "")
+            item.target = self
+            item.state = state.adaptiveANC ? .on : .off
+            menu.addItem(item)
+        }
+
+        if state.isConnected && state.capabilities.contains(.hasLowLatency) {
+            let item = NSMenuItem(title: "低延迟游戏模式", action: #selector(toggleQuickLowLatency), keyEquivalent: "")
+            item.target = self
+            item.state = state.lowLatency ? .on : .off
+            menu.addItem(item)
+        }
+
+        if state.isConnected && state.capabilities.contains(.hasDualDevice) {
+            let item = NSMenuItem(title: "双设备连接", action: #selector(toggleQuickDualDevice), keyEquivalent: "")
+            item.target = self
+            item.state = state.dualDevice ? .on : .off
+            menu.addItem(item)
+        }
+
+        menu.addItem(.separator())
+
+        let rescanItem = NSMenuItem(title: L10n.actionRescan, action: #selector(triggerQuickRescan), keyEquivalent: "r")
+        rescanItem.target = self
+        menu.addItem(rescanItem)
+
+        let quitItem = NSMenuItem(title: L10n.actionQuit, action: #selector(quitApp), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
+
+        statusItem?.menu = menu
+        statusItem?.button?.performClick(nil)
+        statusItem?.menu = nil
+    }
+
+    @objc private func selectQuickNoiseMode(_ sender: NSMenuItem) {
+        if let mode = sender.representedObject as? NoiseMode {
+            controller.setNoiseMode(mode)
+        }
+    }
+
+    @objc private func toggleQuickAdaptiveANC() {
+        controller.setAdaptiveANC(!controller.state.adaptiveANC)
+    }
+
+    @objc private func toggleQuickLowLatency() {
+        controller.setLowLatency(!controller.state.lowLatency)
+    }
+
+    @objc private func toggleQuickDualDevice() {
+        controller.setDualDevice(!controller.state.dualDevice)
+    }
+
+    @objc private func triggerQuickRescan() {
+        controller.rescanDevices()
+    }
+
+    @objc private func quitApp() {
+        NSApplication.shared.terminate(nil)
     }
 
     @objc private func togglePanel() {

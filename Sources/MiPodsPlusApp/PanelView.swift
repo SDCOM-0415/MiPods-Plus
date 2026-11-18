@@ -12,6 +12,8 @@ struct PanelView: View {
     @State private var showSmartSection = false
     @State private var showGesturesSection = false
     @State private var isFindingEarbuds = false
+    @State private var findTarget: FindTarget = .both
+    @State private var draftEQBands: [EQBand] = EQBand.defaultBands
 
     private var state: MiPodsState { controller.state }
 
@@ -328,6 +330,7 @@ struct PanelView: View {
 
     private var hasAudioControls: Bool {
         state.capabilities.contains(.hasEqualizer)
+            || state.capabilities.contains(.hasCustomEQ)
             || state.capabilities.contains(.hasSpatialAudio)
             || state.capabilities.contains(.hasSceneMode)
     }
@@ -350,6 +353,69 @@ struct PanelView: View {
                         }
                         .labelsHidden()
                         .controlSize(.small)
+                    }
+                }
+
+                if state.capabilities.contains(.hasCustomEQ) || state.eqPreset == .custom {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("10 段自定义 EQ (dB)")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("试听") {
+                                controller.previewCustomEQ(draftEQBands)
+                            }
+                            .controlSize(.mini)
+                            Button("保存") {
+                                controller.saveCustomEQ(draftEQBands)
+                            }
+                            .controlSize(.mini)
+                            Button("归零") {
+                                draftEQBands = EQBand.defaultBands
+                                controller.resetCustomEQ()
+                            }
+                            .controlSize(.mini)
+                        }
+
+                        ForEach($draftEQBands) { $band in
+                            HStack(spacing: 6) {
+                                Text(band.freqLabel)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 28, alignment: .trailing)
+                                    .monospacedDigit()
+                                Slider(
+                                    value: Binding(
+                                        get: { Double(band.gain) },
+                                        set: { band.gain = Int($0.rounded()) }
+                                    ),
+                                    in: -12...12,
+                                    step: 1
+                                )
+                                .controlSize(.mini)
+                                Text("\(band.gain > 0 ? "+" : "")\(band.gain)")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 24, alignment: .trailing)
+                                    .monospacedDigit()
+                            }
+                        }
+                    }
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.primary.opacity(0.04))
+                    )
+                    .onAppear {
+                        if !state.customEQBands.isEmpty {
+                            draftEQBands = state.customEQBands
+                        }
+                    }
+                    .onChange(of: state.customEQBands) { _, newBands in
+                        if !newBands.isEmpty {
+                            draftEQBands = newBands
+                        }
                     }
                 }
 
@@ -403,6 +469,7 @@ struct PanelView: View {
 
     private var hasSmartControls: Bool {
         state.capabilities.contains(.hasDualDevice)
+            || state.capabilities.contains(.hasLowLatency)
             || state.capabilities.contains(.hasAutoAnswer)
             || state.capabilities.contains(.hasHotword)
             || state.capabilities.contains(.hasFreeTalk)
@@ -418,6 +485,16 @@ struct PanelView: View {
                     Toggle("双设备连接", isOn: Binding(
                         get: { state.dualDevice },
                         set: { controller.setDualDevice($0) }
+                    ))
+                    .font(.system(size: 11))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                }
+
+                if state.capabilities.contains(.hasLowLatency) {
+                    Toggle("低延迟游戏模式", isOn: Binding(
+                        get: { state.lowLatency },
+                        set: { controller.setLowLatency($0) }
                     ))
                     .font(.system(size: 11))
                     .toggleStyle(.switch)
@@ -483,16 +560,26 @@ struct PanelView: View {
                 }
 
                 if state.capabilities.contains(.hasFindMyEarbuds) {
-                    Button {
-                        isFindingEarbuds.toggle()
-                        controller.findEarbuds(isFindingEarbuds)
-                    } label: {
-                        Label(isFindingEarbuds ? "停止查找响铃" : "查找耳机（响铃）",
-                              systemImage: isFindingEarbuds ? "bell.slash.fill" : "bell.and.waves.left.and.right")
-                            .font(.system(size: 11))
-                            .frame(maxWidth: .infinity)
+                    VStack(spacing: 6) {
+                        Picker("响铃目标", selection: $findTarget) {
+                            ForEach(FindTarget.allCases, id: \.self) { t in
+                                Text(t.displayTitle).tag(t)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .controlSize(.small)
+
+                        Button {
+                            isFindingEarbuds.toggle()
+                            controller.findEarbuds(isFindingEarbuds, target: findTarget)
+                        } label: {
+                            Label(isFindingEarbuds ? "停止查找响铃" : "查找耳机（\(findTarget.displayTitle)响铃）",
+                                  systemImage: isFindingEarbuds ? "bell.slash.fill" : "bell.and.waves.left.and.right")
+                                .font(.system(size: 11))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .controlSize(.small)
                     }
-                    .controlSize(.small)
                     .padding(.top, 2)
                 }
             }
