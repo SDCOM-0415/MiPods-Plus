@@ -18,7 +18,7 @@
 
 ### 方式一：通过 GitHub Actions 下载构建产物
 
-仓库已配置 [GitHub Actions 工作流](.github/workflows/ci.yml)（`macos-14`）：每次推送到 `main` 会自动执行 `swift build`、`swift test` 并打包上传 `MiPods-Plus-macOS.zip` 产物，可在仓库 **Actions** 页面直接下载。
+仓库已配置 [GitHub Actions 工作流](.github/workflows/ci.yml)（`macos-latest`）：每次推送到 `main` 会自动执行 `swift build`、`swift test` 并打包上传 `MiPods-Plus-macOS.zip` 产物，可在仓库 **Actions** 页面直接下载。
 
 ### 方式二：本地从源码构建
 
