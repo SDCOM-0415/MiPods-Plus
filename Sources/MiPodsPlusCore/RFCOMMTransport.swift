@@ -43,14 +43,13 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
             let name = (device.name?.isEmpty == false ? device.name! : addr)
             let isConnected = device.isConnected()
 
-            var record: IOBluetoothSDPServiceRecord?
-            if let uuid128 { record = device.getServiceRecord(for: uuid128) }
+            var record: IOBluetoothSDPServiceRecord? = device.getServiceRecord(for: uuid128)
             if record == nil, let uuid16 { record = device.getServiceRecord(for: uuid16) }
 
             // If SDP cache is empty on a currently connected Xiaomi/Redmi/Buds headset, query it once.
             if record == nil && isConnected && (device.services?.isEmpty ?? true) && Self.looksLikeEarbuds(name) {
                 _ = device.performSDPQuery(nil)
-                if let uuid128 { record = device.getServiceRecord(for: uuid128) }
+                record = device.getServiceRecord(for: uuid128)
                 if record == nil, let uuid16 { record = device.getServiceRecord(for: uuid16) }
             }
 
