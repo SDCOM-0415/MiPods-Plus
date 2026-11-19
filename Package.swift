@@ -9,11 +9,11 @@ let package = Package(
         .library(name: "MiPodsPlusCore", targets: ["MiPodsPlusCore"])
     ],
     targets: [
-        .target(name: "MiPodsPlusCore", path: "MiPodsPlusCore"),
+        .target(name: "MiPodsPlusCore", path: "Core"),
         .executableTarget(
             name: "MiPodsPlusApp",
             dependencies: ["MiPodsPlusCore"],
-            path: "MiPodsPlusApp"
+            path: "App"
         ),
         .testTarget(
             name: "MiPodsPlusCoreTests",

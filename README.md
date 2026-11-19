@@ -43,8 +43,8 @@ make install # 安装到 /Applications
 ## 目录结构
 
 ```
-MiPodsPlusCore/         协议帧编解码、SAFER+ 认证、10 段 EQ、BLE/RFCOMM 双通道传输与状态控制器
-MiPodsPlusApp/          菜单栏 App、右键快捷菜单、类 AirPods 发现卡片与悬浮 HUD、Touch Bar 与控制面板
+Core/                   协议帧编解码、SAFER+ 认证、10 段 EQ、BLE/RFCOMM 双通道传输与状态控制器
+App/                    菜单栏 App、右键快捷菜单、类 AirPods 发现卡片与悬浮 HUD、Touch Bar 与控制面板
 Tests/                  帧编解码、ConfigRecord、自定义 EQ、SAFER+ 与设备过滤单元测试
 ```
 

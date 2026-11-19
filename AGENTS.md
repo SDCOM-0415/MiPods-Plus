@@ -9,13 +9,13 @@
 `MiPods-Plus` 是一个面向 **macOS 12.0+** 的小米 / Redmi 蓝牙耳机伴侣应用（Swift Package Manager，无 Xcode `.xcodeproj` 工程文件），输出 **Universal Binary (`arm64` + `x86_64`)**。
 
 ```text
-MiPodsPlusCore/               # 纯逻辑与蓝牙通信核心库（不依赖 SwiftUI / AppKit）
+Core/                         # 纯逻辑与蓝牙通信核心库（不依赖 SwiftUI / AppKit）
   MiPodsController.swift      # @MainActor 混合状态控制器（双通道调度、多设备切换、轮询与混合认证）
   Models.swift                # MiPodsState、DiscoveredDevice、TransportKind、能力位与枚举
   Protocol.swift              # FE DC BA ... EF 帧编解码、SAFER+ 认证、TLV/ConfigRecord、10 段 EQ 编解码
   BLETransport.swift          # CoreBluetooth BLE 0xAF00 传输层（含小米手机防误连过滤）
   RFCOMMTransport.swift       # IOBluetooth 经典蓝牙 RFCOMM 0xFD2D 传输层
-MiPodsPlusApp/                # macOS 菜单栏与桌面 UI（AppKit + SwiftUI）
+App/                          # macOS 菜单栏与桌面 UI（AppKit + SwiftUI）
   MiPodsPlusApp.swift         # 应用入口、菜单栏图标/右键快捷菜单、Popover 管理
   PanelView.swift             # 主控制面板与多设备切换器
   HUDController.swift         # 类 AirPods 顶部悬浮连接胶囊 HUD 窗口控制
@@ -32,9 +32,9 @@ Tests/                        # 单元测试
 ```
 
 **分层红线**：
-- `MiPodsPlusCore` 严禁引入 `SwiftUI` 或 `AppKit`。
-- `MiPodsPlusApp` 不得直接拼装蓝牙字节帧或操作 `CBPeripheral` / `IOBluetoothRFCOMMChannel`，所有控制操作必须通过 `MiPodsController` 暴露的方法下发。
-- **扁平目录约定**：保持 `MiPodsPlusCore/`、`MiPodsPlusApp/`、`Tests/` 三个顶层目录内部文件直接平铺，不要再拆多层子文件夹。
+- `Core/`（Swift 模块 `MiPodsPlusCore`）严禁引入 `SwiftUI` 或 `AppKit`。
+- `App/`（Swift 模块 `MiPodsPlusApp`）不得直接拼装蓝牙字节帧或操作 `CBPeripheral` / `IOBluetoothRFCOMMChannel`，所有控制操作必须通过 `MiPodsController` 暴露的方法下发。
+- **扁平目录约定**：保持 `Core/`、`App/`、`Tests/` 三个顶层目录内部文件直接平铺，不要再拆多层子文件夹。
 
 ---
 
@@ -60,7 +60,7 @@ Tests/                        # 单元测试
 ## 3. macOS 兼容性与通用二进制红线
 
 - **最低部署目标**：`Package.swift`（`.macOS("12.0")`）与 `Makefile`（`LSMinimumSystemVersion = 12.0`）必须保持一致。
-- **隔离兼容原则**：针对 macOS 12–13 缺失的 API（如 `SMAppService`、新版 SwiftUI 修饰符、SF Symbols 等），**必须**通过 `#available(macOS 14.0, *)` / `#available(macOS 13.0, *)` 条件分支或封装在 `MiPodsPlusApp/Compatibility.swift` 中实现降级，**不得为兼容旧系统而回退或劣化 macOS 14+ 的原生行为**。
+- **隔离兼容原则**：针对 macOS 12–13 缺失的 API（如 `SMAppService`、新版 SwiftUI 修饰符、SF Symbols 等），**必须**通过 `#available(macOS 14.0, *)` / `#available(macOS 13.0, *)` 条件分支或封装在 `App/Compatibility.swift` 中实现降级，**不得为兼容旧系统而回退或劣化 macOS 14+ 的原生行为**。
 - **通用二进制构建**：`Makefile` 默认 `SWIFT_FLAGS ?= -c release --arch arm64 --arch x86_64`，不要将其改回单架构调试构建；`PRODUCT` 路径必须通过 `swift build $(SWIFT_FLAGS) --show-bin-path` 动态获取，禁止硬编码 `.build/...`。
 
 ---
