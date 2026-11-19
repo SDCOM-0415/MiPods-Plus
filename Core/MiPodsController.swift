@@ -199,14 +199,15 @@ public final class MiPodsController: ObservableObject {
         didSet {
             let on = captureAdvertisements
             bleTransport.captureAdvertisements = on
-            append(on ? "已开启广播抓取（请分别在耳机开盖/合盖时观察 [广播] 日志）" : "已关闭广播抓取")
+            classicDiscovery.verboseLogging = on
+            append(on ? "已开启诊断抓取（请观察 [广播] 与 [经典] 日志）" : "已关闭诊断抓取")
         }
     }
 
     public func rescanDevices() {
         append("重新扫描附近小米耳机（经典蓝牙 + BLE）")
         refreshRFCOMMDevices(autoConnect: !state.isConnected)
-        classicDiscovery.start()
+        classicDiscovery.restart()
         bleTransport.allowAutoConnect = !state.isConnected
         bleTransport.rescan()
         scheduleConnectFallback()
