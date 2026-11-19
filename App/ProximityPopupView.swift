@@ -284,6 +284,21 @@ struct ProximityPopupView: View {
             }
             .buttonStyle(.plain)
             .disabled(isConnecting)
+
+            if state.statusDetail.contains("失败") || state.statusDetail.contains("超时") || state.statusDetail.contains("未找到") {
+                Button {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.BluetoothSettings") {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    Text("打开系统蓝牙设置")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 }

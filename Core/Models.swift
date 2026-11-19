@@ -110,7 +110,12 @@ public struct XiaomiFastPairBeacon: Sendable, Equatable {
         }
         // Bytes 13..18 encode the Classic MAC as [b1, b0, b2, b5, b4, b3]
         // (verified on Redmi Buds 6 青春版: 99 78 87 3A FC EE -> 78-99-87-EE-FC-3A).
-        let macBytes: [UInt8] = [bytes[14], bytes[13], bytes[15], bytes[18], bytes[17], bytes[16]]
+        var slot = Array(bytes[13..<19])
+        if slot.allSatisfy({ $0 == 0 }), bytes.count >= 26 {
+            slot = Array(bytes[20..<26])
+        }
+        guard !slot.allSatisfy({ $0 == 0 }) else { return nil }
+        let macBytes: [UInt8] = [slot[1], slot[0], slot[2], slot[5], slot[4], slot[3]]
         let mac = macBytes.map { String(format: "%02X", $0) }.joined(separator: "-")
         return XiaomiFastPairBeacon(classicMAC: mac)
     }
