@@ -37,7 +37,7 @@ struct ProximityPopupView: View {
             return "正在连接耳机…"
         }
         if let dev = candidateDevice {
-            var parts = ["附近发现耳机"]
+            var parts = [dev.needsPairing ? "配对模式耳机" : "附近发现耳机"]
             parts.append(dev.transportKind.rawValue)
             if let rssi = dev.rssi {
                 parts.append("\(rssi) dBm")
@@ -140,7 +140,9 @@ struct ProximityPopupView: View {
                     Image(systemName: "wave.3.right")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color.accentColor)
-                    Text(candidateDevice?.isSystemConnected == true
+                    Text(candidateDevice?.needsPairing == true
+                         ? "检测到配对模式耳机，点击将配对并连接"
+                         : candidateDevice?.isSystemConnected == true
                          ? "耳机已与系统蓝牙配对，可立即接管控制"
                          : "检测到耳机开盖/靠近广播，点击即可连接")
                         .font(.system(size: 11))
@@ -261,7 +263,7 @@ struct ProximityPopupView: View {
                         Image(systemName: "bolt.horizontal.circle.fill")
                             .font(.system(size: 13))
                     }
-                    Text(isConnecting ? "正在连接…" : "通过此 Mac 连接")
+                    Text(isConnecting ? "正在连接…" : (candidateDevice?.needsPairing == true ? "配对并连接" : "通过此 Mac 连接"))
                         .font(.system(size: 13, weight: .semibold))
                 }
                 .foregroundStyle(.white)

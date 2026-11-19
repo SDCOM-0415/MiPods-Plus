@@ -130,6 +130,11 @@ final class ProtocolTests: XCTestCase {
         XCTAssertTrue(DiscoveredDevice.isEarbudName("Xiaomi 开放式耳机"))
 
         // Anonymous or non-earbud Xiaomi devices must be rejected:
+        XCTAssertFalse(DiscoveredDevice.isEarbudName("Galaxy Buds2 Pro"))
+        XCTAssertFalse(DiscoveredDevice.isEarbudName("HUAWEI FreeBuds 5"))
+        XCTAssertFalse(DiscoveredDevice.isEarbudName("AirPods Pro"))
+        XCTAssertFalse(DiscoveredDevice.isEarbudName("JBL TWS earbuds"))
+        XCTAssertFalse(DiscoveredDevice.isEarbudName("蓝牙耳机"))
         XCTAssertFalse(DiscoveredDevice.isEarbudName(nil))
         XCTAssertFalse(DiscoveredDevice.isEarbudName(""))
         XCTAssertFalse(DiscoveredDevice.isEarbudName("小米设备"))

@@ -15,6 +15,7 @@ Core/                         # 纯逻辑与蓝牙通信核心库（不依赖 Sw
   Protocol.swift              # FE DC BA ... EF 帧编解码、SAFER+ 认证、TLV/ConfigRecord、10 段 EQ 编解码
   BLETransport.swift          # CoreBluetooth BLE 0xAF00 传输层（含小米手机防误连过滤）
   RFCOMMTransport.swift       # IOBluetooth 经典蓝牙 RFCOMM 0xFD2D 传输层
+  ClassicDiscovery.swift      # 经典蓝牙 Inquiry：发现配对模式耳机并发起配对（名称须含小米/Redmi 品牌）
 App/                          # macOS 菜单栏与桌面 UI（AppKit + SwiftUI）
   MiPodsPlusApp.swift         # 应用入口、菜单栏图标/右键快捷菜单、Popover 管理
   PanelView.swift             # 主控制面板与多设备切换器

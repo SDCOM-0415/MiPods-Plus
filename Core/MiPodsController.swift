@@ -121,6 +121,8 @@ public final class MiPodsController: ObservableObject {
     private var activeTransportKind: TransportKind = .ble
     private var bleDevices: [DiscoveredDevice] = []
     private var rfcommDevices: [DiscoveredDevice] = []
+    private var inquiryDevices: [DiscoveredDevice] = []
+    private let classicDiscovery = ClassicDiscovery()
     private var connectTimeoutTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var pendingCommandAfterAuth: (() -> Void)?
@@ -145,6 +147,22 @@ public final class MiPodsController: ObservableObject {
         rfcommTransport.onEvent = { [weak self] event in
             Task { @MainActor [weak self] in self?.handle(event, from: .rfcomm) }
         }
+        classicDiscovery.onLog = { [weak self] line in
+            Task { @MainActor [weak self] in self?.append(line) }
+        }
+        classicDiscovery.onDevices = { [weak self] devices in
+            Task { @MainActor [weak self] in
+                self?.inquiryDevices = devices
+                self?.mergeDiscoveredDevices()
+            }
+        }
+        classicDiscovery.onPaired = { [weak self] _, ok in
+            Task { @MainActor [weak self] in
+                guard let self, ok else { return }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                self.refreshRFCOMMDevices(autoConnect: true)
+            }
+        }
     }
 
     // MARK: - Lifecycle & Multi-Device
@@ -152,6 +170,7 @@ public final class MiPodsController: ObservableObject {
     public func start() {
         append("开始多设备扫描（经典蓝牙 RFCOMM 0xFD2D + BLE 0xAF00）")
         refreshRFCOMMDevices(autoConnect: true)
+        classicDiscovery.start()
         bleTransport.allowAutoConnect = !state.isConnected && activeTransportKind != .rfcomm
         bleTransport.start()
         scheduleConnectFallback()
@@ -161,12 +180,14 @@ public final class MiPodsController: ObservableObject {
         pollTask?.cancel()
         connectTimeoutTask?.cancel()
         bleTransport.stop()
+        classicDiscovery.stop()
         rfcommTransport.disconnect()
     }
 
     public func rescanDevices() {
         append("重新扫描附近小米耳机（经典蓝牙 + BLE）")
         refreshRFCOMMDevices(autoConnect: !state.isConnected)
+        classicDiscovery.start()
         bleTransport.allowAutoConnect = !state.isConnected
         bleTransport.rescan()
         scheduleConnectFallback()
@@ -191,7 +212,9 @@ public final class MiPodsController: ObservableObject {
     private func mergeDiscoveredDevices() {
         var combined: [DiscoveredDevice] = []
         var seen = Set<UUID>()
-        for dev in rfcommDevices + bleDevices {
+        let pairedIDs = Set(rfcommDevices.map(\.id))
+        let pending = inquiryDevices.filter { !pairedIDs.contains($0.id) }
+        for dev in rfcommDevices + pending + bleDevices {
             if seen.insert(dev.id).inserted {
                 combined.append(dev)
             }
@@ -217,6 +240,13 @@ public final class MiPodsController: ObservableObject {
 
         state.deviceName = dev.name
         append("切换设备 → \(dev.name)（\(dev.transportKind.rawValue)）")
+
+        if dev.needsPairing, let addr = dev.classicAddress {
+            append("正在配对 \(dev.name)…")
+            bleTransport.allowAutoConnect = false
+            classicDiscovery.pair(address: addr)
+            return
+        }
 
         if dev.transportKind == .rfcomm, let addr = dev.classicAddress, let ch = dev.rfcommChannelID {
             bleTransport.allowAutoConnect = false

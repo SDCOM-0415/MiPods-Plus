@@ -17,6 +17,8 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
     public var transportKind: TransportKind
     public var classicAddress: String?
     public var rfcommChannelID: UInt8?
+    /// True for unpaired earbuds found by Classic inquiry (pairing mode); selecting them triggers pairing.
+    public var needsPairing: Bool
 
     public init(id: UUID,
                 name: String,
@@ -26,7 +28,8 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
                 mfrHex: String? = nil,
                 transportKind: TransportKind = .ble,
                 classicAddress: String? = nil,
-                rfcommChannelID: UInt8? = nil) {
+                rfcommChannelID: UInt8? = nil,
+                needsPairing: Bool = false) {
         self.id = id
         self.name = name
         self.rssi = rssi
@@ -36,6 +39,7 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
         self.transportKind = transportKind
         self.classicAddress = classicAddress
         self.rfcommChannelID = rfcommChannelID
+        self.needsPairing = needsPairing
     }
 
     public var isBudsSeries: Bool {
@@ -56,15 +60,16 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
         guard let rawName, !rawName.isEmpty else { return false }
         let lower = rawName.lowercased()
         let nonEarbudHints = [
-            "turbo", "phone", "pad", "watch", "band", "note", "redmi k",
+            "turbo", "phone", "pad", "watch", "note", "redmi k",
             "mix", "civi", "tv", "book", "laptop", "router", "speaker", "sound"
         ]
         if nonEarbudHints.contains(where: { lower.contains($0) }) && !lower.contains("buds") {
             return false
         }
+        let brands = ["xiaomi", "redmi", "小米", "红米"]
+        guard brands.contains(where: { lower.contains($0) }) else { return false }
         let earbudKeywords = [
-            "buds", "耳机", "earphone", "earbuds", "airdots", "air 2", "air2",
-            "air 3", "air3", "tws", "flipbuds", "line free", "neckband", "耳夹", "开放式"
+            "buds", "耳机", "earphone", "earbuds", "airdots", "flipbuds", "neckband", "耳夹", "开放式"
         ]
         return earbudKeywords.contains(where: { lower.contains($0) })
     }
