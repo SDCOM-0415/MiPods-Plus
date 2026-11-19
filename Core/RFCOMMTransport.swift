@@ -27,7 +27,7 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
     // MARK: - Discovery
 
     /// Scans paired Classic Bluetooth devices for Xiaomi `0xFD2D` RFCOMM service records.
-    public func discoverPairedDevices() -> [DiscoveredDevice] {
+    public func discoverPairedDevices(reachable: Set<String> = []) -> [DiscoveredDevice] {
         guard let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else {
             return []
         }
@@ -47,7 +47,7 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
             if record == nil, let uuid16 { record = device.getServiceRecord(for: uuid16) }
 
             // If SDP cache is empty on a currently connected Xiaomi/Redmi/Buds headset, query it once.
-            if record == nil && isConnected && (device.services?.isEmpty ?? true) && Self.looksLikeEarbuds(name) {
+            if record == nil && (isConnected || reachable.contains(addr)) && (device.services?.isEmpty ?? true) && Self.looksLikeEarbuds(name) {
                 _ = device.performSDPQuery(nil)
                 record = device.getServiceRecord(for: uuid128)
                 if record == nil, let uuid16 { record = device.getServiceRecord(for: uuid16) }
@@ -70,13 +70,26 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
                 lastSeen: Date(),
                 transportKind: .rfcomm,
                 classicAddress: addr,
-                rfcommChannelID: channelID
+                rfcommChannelID: channelID,
+                isNearby: reachable.contains(addr)
             ))
         }
 
         return found.sorted { lhs, rhs in
             if lhs.isSystemConnected != rhs.isSystemConnected { return lhs.isSystemConnected }
             return lhs.name < rhs.name
+        }
+    }
+
+    /// Paired but not currently connected devices that may be Xiaomi earbuds (SDP record known, or earbud-like name).
+    /// These are probed for reachability so "paired but not auto-connected" earbuds can still trigger the discovery card.
+    public func pairedProbeCandidates() -> [String] {
+        guard let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else { return [] }
+        let uuid16 = IOBluetoothSDPUUID(uuid16: 0xFD2D)
+        return paired.compactMap { device in
+            guard let addr = device.addressString, !addr.isEmpty, !device.isConnected() else { return nil }
+            let hasRecord = uuid16.map { device.getServiceRecord(for: $0) != nil } ?? false
+            return (hasRecord || Self.looksLikeEarbuds(device.name ?? "")) ? addr : nil
         }
     }
 

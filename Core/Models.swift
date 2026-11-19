@@ -19,6 +19,8 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
     public var rfcommChannelID: UInt8?
     /// True for unpaired earbuds found by Classic inquiry (pairing mode); selecting them triggers pairing.
     public var needsPairing: Bool
+    /// True for paired (not yet connected) earbuds that currently answer a Classic page request, i.e. powered on and in range.
+    public var isNearby: Bool
 
     public init(id: UUID,
                 name: String,
@@ -29,7 +31,8 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
                 transportKind: TransportKind = .ble,
                 classicAddress: String? = nil,
                 rfcommChannelID: UInt8? = nil,
-                needsPairing: Bool = false) {
+                needsPairing: Bool = false,
+                isNearby: Bool = false) {
         self.id = id
         self.name = name
         self.rssi = rssi
@@ -40,6 +43,7 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
         self.classicAddress = classicAddress
         self.rfcommChannelID = rfcommChannelID
         self.needsPairing = needsPairing
+        self.isNearby = isNearby
     }
 
     public var isBudsSeries: Bool {

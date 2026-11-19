@@ -6,23 +6,78 @@ import IOBluetooth
 final class ClassicDiscovery: NSObject, IOBluetoothDeviceInquiryDelegate, IOBluetoothDevicePairDelegate {
     var onDevices: (([DiscoveredDevice]) -> Void)?
     var onPaired: ((String, Bool) -> Void)?
+    /// Provides paired-but-unconnected candidate addresses to probe for reachability.
+    var probeProvider: (() -> [String])?
+    var onReachable: ((Set<String>) -> Void)?
     var onLog: ((String) -> Void)?
 
     private var inquiry: IOBluetoothDeviceInquiry?
     private var pair: IOBluetoothDevicePair?
     private var running = false
+    private var reachable: Set<String> = []
+    private var probeQueue: [String] = []
+    private var probing: String?
+    private var probeToken = 0
+    private var probeTimer: Timer?
     private var found: [String: DiscoveredDevice] = [:]
 
     func start() {
         guard !running else { return }
         running = true
         runInquiry()
+        probeTimer?.invalidate()
+        probeTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+            self?.startProbeRound()
+        }
+        startProbeRound()
     }
 
     func stop() {
         running = false
+        probeTimer?.invalidate()
+        probeTimer = nil
         inquiry?.stop()
         inquiry = nil
+    }
+
+    // MARK: Reachability probe of paired devices
+
+    private func startProbeRound() {
+        guard running, probing == nil else { return }
+        probeQueue = probeProvider?() ?? []
+        let valid = Set(probeQueue)
+        if !reachable.isSubset(of: valid) {
+            reachable = reachable.intersection(valid)
+            onReachable?(reachable)
+        }
+        probeNext()
+    }
+
+    private func probeNext() {
+        guard running, !probeQueue.isEmpty else { probing = nil; return }
+        let addr = probeQueue.removeFirst()
+        guard let device = IOBluetoothDevice(addressString: addr) else { probeNext(); return }
+        probing = addr
+        probeToken += 1
+        let token = probeToken
+        let rc = device.remoteNameRequest(self)
+        if rc != kIOReturnSuccess { finishProbe(addr, ok: false); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            guard let self, self.probing == addr, self.probeToken == token else { return }
+            self.finishProbe(addr, ok: false)
+        }
+    }
+
+    @objc func remoteNameRequestComplete(_ device: IOBluetoothDevice!, status: IOReturn) {
+        guard let addr = device?.addressString, addr == probing else { return }
+        finishProbe(addr, ok: status == kIOReturnSuccess)
+    }
+
+    private func finishProbe(_ addr: String, ok: Bool) {
+        probing = nil
+        let changed = ok ? reachable.insert(addr).inserted : (reachable.remove(addr) != nil)
+        if changed { onReachable?(reachable) }
+        probeNext()
     }
 
     private func runInquiry() {

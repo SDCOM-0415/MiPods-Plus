@@ -123,6 +123,7 @@ public final class MiPodsController: ObservableObject {
     private var rfcommDevices: [DiscoveredDevice] = []
     private var inquiryDevices: [DiscoveredDevice] = []
     private let classicDiscovery = ClassicDiscovery()
+    private var reachableAddresses: Set<String> = []
     private var connectTimeoutTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var pendingCommandAfterAuth: (() -> Void)?
@@ -154,6 +155,15 @@ public final class MiPodsController: ObservableObject {
             Task { @MainActor [weak self] in
                 self?.inquiryDevices = devices
                 self?.mergeDiscoveredDevices()
+            }
+        }
+        let transport = rfcommTransport
+        classicDiscovery.probeProvider = { transport.pairedProbeCandidates() }
+        classicDiscovery.onReachable = { [weak self] addrs in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.reachableAddresses = addrs
+                self.refreshRFCOMMDevices(autoConnect: false)
             }
         }
         classicDiscovery.onPaired = { [weak self] _, ok in
@@ -194,7 +204,7 @@ public final class MiPodsController: ObservableObject {
     }
 
     private func refreshRFCOMMDevices(autoConnect: Bool) {
-        let found = rfcommTransport.discoverPairedDevices()
+        let found = rfcommTransport.discoverPairedDevices(reachable: reachableAddresses)
         rfcommDevices = found
         mergeDiscoveredDevices()
 

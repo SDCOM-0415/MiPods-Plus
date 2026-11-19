@@ -51,7 +51,7 @@ final class ProximityPopupController {
         // Filter strictly to confirmed earbuds that are either system-connected or very close (RSSI >= -62 dBm).
         let eligible = devices.filter { dev in
             guard dev.isConfirmedEarbud else { return false }
-            if dev.isSystemConnected { return true }
+            if dev.isSystemConnected || dev.isNearby { return true }
             if dev.needsPairing { return (dev.rssi ?? -60) >= -78 }
             if let rssi = dev.rssi, rssi >= nearRSSIThreshold { return true }
             return false
