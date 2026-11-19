@@ -121,10 +121,6 @@ public final class MiPodsController: ObservableObject {
     private var activeTransportKind: TransportKind = .ble
     private var bleDevices: [DiscoveredDevice] = []
     private var rfcommDevices: [DiscoveredDevice] = []
-    private var inquiryDevices: [DiscoveredDevice] = []
-    private let classicDiscovery = ClassicDiscovery()
-    private var reachableAddresses: Set<String> = []
-    private var fastPairBeacons: [String: (mac: String, rssi: Int, lastSeen: Date)] = [:]
     private var connectTimeoutTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var pendingCommandAfterAuth: (() -> Void)?
@@ -146,41 +142,8 @@ public final class MiPodsController: ObservableObject {
         bleTransport.onEvent = { [weak self] event in
             Task { @MainActor [weak self] in self?.handle(event, from: .ble) }
         }
-        bleTransport.onFastPairBeacon = { [weak self] beacon, rssi in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let key = XiaomiFastPairBeacon.normalizedMACKey(beacon.classicMAC)
-                self.fastPairBeacons[key] = (beacon.classicMAC, rssi, Date())
-                self.refreshRFCOMMDevices(autoConnect: false)
-            }
-        }
         rfcommTransport.onEvent = { [weak self] event in
             Task { @MainActor [weak self] in self?.handle(event, from: .rfcomm) }
-        }
-        classicDiscovery.onLog = { [weak self] line in
-            Task { @MainActor [weak self] in self?.append(line) }
-        }
-        classicDiscovery.onDevices = { [weak self] devices in
-            Task { @MainActor [weak self] in
-                self?.inquiryDevices = devices
-                self?.mergeDiscoveredDevices()
-            }
-        }
-        let transport = rfcommTransport
-        classicDiscovery.probeProvider = { transport.pairedProbeCandidates() }
-        classicDiscovery.onReachable = { [weak self] addrs in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.reachableAddresses = addrs
-                self.refreshRFCOMMDevices(autoConnect: false)
-            }
-        }
-        classicDiscovery.onPaired = { [weak self] _, ok in
-            Task { @MainActor [weak self] in
-                guard let self, ok else { return }
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                self.refreshRFCOMMDevices(autoConnect: true)
-            }
         }
     }
 
@@ -189,7 +152,6 @@ public final class MiPodsController: ObservableObject {
     public func start() {
         append("开始多设备扫描（经典蓝牙 RFCOMM 0xFD2D + BLE 0xAF00）")
         refreshRFCOMMDevices(autoConnect: true)
-        classicDiscovery.start()
         bleTransport.allowAutoConnect = !state.isConnected && activeTransportKind != .rfcomm
         bleTransport.start()
         scheduleConnectFallback()
@@ -199,32 +161,19 @@ public final class MiPodsController: ObservableObject {
         pollTask?.cancel()
         connectTimeoutTask?.cancel()
         bleTransport.stop()
-        classicDiscovery.stop()
         rfcommTransport.disconnect()
-    }
-
-    /// Diagnostic toggle: dump raw Xiaomi-related BLE advertisements into the log.
-    public var captureAdvertisements: Bool = false {
-        didSet {
-            let on = captureAdvertisements
-            bleTransport.captureAdvertisements = on
-            classicDiscovery.verboseLogging = on
-            append(on ? "已开启诊断抓取（请观察 [广播] 与 [经典] 日志）" : "已关闭诊断抓取")
-        }
     }
 
     public func rescanDevices() {
         append("重新扫描附近小米耳机（经典蓝牙 + BLE）")
         refreshRFCOMMDevices(autoConnect: !state.isConnected)
-        classicDiscovery.restart()
         bleTransport.allowAutoConnect = !state.isConnected
         bleTransport.rescan()
         scheduleConnectFallback()
     }
 
     private func refreshRFCOMMDevices(autoConnect: Bool) {
-        let rssiMap = fastPairBeacons.mapValues(\.rssi)
-        let found = rfcommTransport.discoverPairedDevices(reachable: reachableAddresses, beaconRSSI: rssiMap)
+        let found = rfcommTransport.discoverPairedDevices()
         rfcommDevices = found
         mergeDiscoveredDevices()
 
@@ -242,25 +191,7 @@ public final class MiPodsController: ObservableObject {
     private func mergeDiscoveredDevices() {
         var combined: [DiscoveredDevice] = []
         var seen = Set<UUID>()
-        let pairedIDs = Set(rfcommDevices.map(\.id))
-        let pairedKeys = Set(rfcommDevices.compactMap { $0.classicAddress.map(XiaomiFastPairBeacon.normalizedMACKey) })
-        let inquiryPending = inquiryDevices.filter { !pairedIDs.contains($0.id) }
-        let inquiryKeys = Set(inquiryPending.compactMap { $0.classicAddress.map(XiaomiFastPairBeacon.normalizedMACKey) })
-        let beaconPending: [DiscoveredDevice] = fastPairBeacons.compactMap { key, entry in
-            guard !pairedKeys.contains(key), !inquiryKeys.contains(key) else { return nil }
-            return DiscoveredDevice(
-                id: DiscoveredDevice.classicUUID(for: entry.mac),
-                name: "小米/Redmi 耳机（靠近/配对）",
-                rssi: entry.rssi,
-                lastSeen: entry.lastSeen,
-                transportKind: .rfcomm,
-                classicAddress: entry.mac,
-                needsPairing: true,
-                isNearby: true,
-                isFastPairBeacon: true
-            )
-        }
-        for dev in rfcommDevices + inquiryPending + beaconPending + bleDevices {
+        for dev in rfcommDevices + bleDevices {
             if seen.insert(dev.id).inserted {
                 combined.append(dev)
             }
@@ -287,16 +218,8 @@ public final class MiPodsController: ObservableObject {
         state.deviceName = dev.name
         append("切换设备 → \(dev.name)（\(dev.transportKind.rawValue)）")
 
-        if dev.needsPairing, let addr = dev.classicAddress {
-            append("正在配对 \(dev.name)…")
-            bleTransport.allowAutoConnect = false
-            classicDiscovery.pair(address: addr)
-            return
-        }
-
         if dev.transportKind == .rfcomm, let addr = dev.classicAddress {
             bleTransport.allowAutoConnect = false
-            classicDiscovery.stop()
             activeTransportKind = .rfcomm
             rfcommTransport.connect(address: addr, channelID: dev.rfcommChannelID, deviceID: dev.id, name: dev.name)
         } else {

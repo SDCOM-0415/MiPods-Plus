@@ -24,7 +24,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
     private var hud: HUDController?
-    private var proximityPopup: ProximityPopupController?
     private var touchBar: TouchBarController?
     private var cancellables = Set<AnyCancellable>()
     private var wasConnected = false
@@ -34,12 +33,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let hud = HUDController(controller: controller)
         self.hud = hud
-
-        let proximityPopup = ProximityPopupController(controller: controller)
-        proximityPopup.onOpenMainPanel = { [weak self] in
-            self?.openPanel()
-        }
-        self.proximityPopup = proximityPopup
 
         let touchBar = TouchBarController(controller: controller)
         self.touchBar = touchBar
@@ -52,18 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
                 if state.isConnected && !self.wasConnected {
                     self.hud?.show()
-                    self.proximityPopup?.handleConnectedTransition()
                 }
                 self.wasConnected = state.isConnected
                 self.hud?.updateIfVisible()
-                self.proximityPopup?.updateIfVisible()
-            }
-            .store(in: &cancellables)
-
-        controller.$discoveredDevices
-            .receive(on: RunLoop.main)
-            .sink { [weak self] devices in
-                self?.proximityPopup?.handleDiscoveredDevices(devices)
             }
             .store(in: &cancellables)
 
@@ -73,7 +57,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                 self?.openPanel()
                 self?.hud?.showForced()
-                self?.proximityPopup?.showForced()
             }
         }
 
@@ -85,7 +68,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         hud?.hide()
-        proximityPopup?.hide(animated: false)
     }
 
     private func setupStatusItem() {
@@ -178,20 +160,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         menu.addItem(.separator())
 
-        let cardItem = NSMenuItem(title: "弹出耳机发现卡片", action: #selector(triggerShowDiscoveryCard), keyEquivalent: "d")
-        cardItem.target = self
-        menu.addItem(cardItem)
-
-        let autoCardItem = NSMenuItem(title: "自动弹出附近发现弹窗", action: #selector(toggleAutoProximityPopup), keyEquivalent: "")
-        autoCardItem.target = self
-        autoCardItem.state = (proximityPopup?.isAutoPopupEnabled ?? true) ? .on : .off
-        menu.addItem(autoCardItem)
-
-        let captureItem = NSMenuItem(title: "抓取 BLE 广播（诊断）", action: #selector(toggleCaptureAdvertisements), keyEquivalent: "")
-        captureItem.target = self
-        captureItem.state = controller.captureAdvertisements ? .on : .off
-        menu.addItem(captureItem)
-
         let copyLogItem = NSMenuItem(title: "复制诊断日志", action: #selector(copyDiagnosticLogs), keyEquivalent: "")
         copyLogItem.target = self
         menu.addItem(copyLogItem)
@@ -227,19 +195,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         controller.setDualDevice(!controller.state.dualDevice)
     }
 
-    @objc private func triggerShowDiscoveryCard() {
-        proximityPopup?.showForced()
-    }
-
-    @objc private func toggleAutoProximityPopup() {
-        guard let proximityPopup else { return }
-        proximityPopup.isAutoPopupEnabled.toggle()
-    }
-
-    @objc private func toggleCaptureAdvertisements() {
-        controller.captureAdvertisements.toggle()
-    }
-
     @objc private func copyDiagnosticLogs() {
         let text = controller.state.log.joined(separator: "\n")
         NSPasteboard.general.clearContents()
@@ -269,10 +224,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let view = PanelView(
             controller: controller,
             onShowHUD: { [weak self] in self?.hud?.showForced() },
-            onShowDiscoveryCard: { [weak self] in
-                self?.closePanel()
-                self?.proximityPopup?.showForced()
-            },
             onOpenSoundSettings: {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension") {
                     NSWorkspace.shared.open(url)

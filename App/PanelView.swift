@@ -5,7 +5,6 @@ struct PanelView: View {
 
     @ObservedObject var controller: MiPodsController
     var onShowHUD: () -> Void
-    var onShowDiscoveryCard: () -> Void = {}
     var onOpenSoundSettings: () -> Void
 
     @State private var showDevices = false
@@ -711,15 +710,6 @@ struct PanelView: View {
                     .font(.system(size: 11))
             }
             .buttonStyle(.borderless)
-
-            Button {
-                onShowDiscoveryCard()
-            } label: {
-                Label("发现卡片", systemImage: CompatSymbols.discoveryCard)
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.borderless)
-            .help("弹出类 AirPods 耳机发现与电量卡片")
 
             Spacer()
 

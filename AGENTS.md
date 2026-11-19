@@ -15,14 +15,11 @@ Core/                         # 纯逻辑与蓝牙通信核心库（不依赖 Sw
   Protocol.swift              # FE DC BA ... EF 帧编解码、SAFER+ 认证、TLV/ConfigRecord、10 段 EQ 编解码
   BLETransport.swift          # CoreBluetooth BLE 0xAF00 传输层（含小米手机防误连过滤）
   RFCOMMTransport.swift       # IOBluetooth 经典蓝牙 RFCOMM 0xFD2D 传输层
-  ClassicDiscovery.swift      # 经典蓝牙 Inquiry：发现配对模式耳机并发起配对（名称须含小米/Redmi 品牌）
 App/                          # macOS 菜单栏与桌面 UI（AppKit + SwiftUI）
   MiPodsPlusApp.swift         # 应用入口、菜单栏图标/右键快捷菜单、Popover 管理
   PanelView.swift             # 主控制面板与多设备切换器
   HUDController.swift         # 类 AirPods 顶部悬浮连接胶囊 HUD 窗口控制
   HUDView.swift               # 顶部悬浮胶囊 HUD 视图
-  ProximityPopupController.swift # 类 AirPods 靠近发现与一键连接大卡片弹窗控制
-  ProximityPopupView.swift    # 类 AirPods 发现与电量卡片视图
   BatteryRing.swift           # 三色电量环组件
   TouchBarController.swift    # Touch Bar 快捷控制
   Compatibility.swift         # macOS 12–13 隔离兼容层（严禁污染 macOS 14+ 原生代码）
