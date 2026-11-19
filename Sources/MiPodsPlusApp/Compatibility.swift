@@ -22,4 +22,18 @@ enum CompatSymbols {
         }
         return "bell.fill"
     }
+
+    static var earbudsCase: String {
+        if #available(macOS 13.0, *) {
+            return "earbuds.case.fill"
+        }
+        return "earbuds"
+    }
+
+    static var discoveryCard: String {
+        if #available(macOS 13.0, *) {
+            return "sparkles.rectangle.stack"
+        }
+        return "sparkles"
+    }
 }

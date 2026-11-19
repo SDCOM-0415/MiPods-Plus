@@ -19,8 +19,10 @@ Sources/
   MiPodsPlusApp/              # macOS 菜单栏与桌面 UI（AppKit + SwiftUI）
     MiPodsPlusApp.swift       # 应用入口、菜单栏图标/右键快捷菜单、Popover 管理
     PanelView.swift           # 主控制面板与多设备切换器
-    HUDController.swift       # 类 AirPods 顶部悬浮连接 HUD 窗口控制
-    HUDView.swift             # 悬浮 HUD 视图
+    HUDController.swift       # 类 AirPods 顶部悬浮连接胶囊 HUD 窗口控制
+    HUDView.swift             # 顶部悬浮胶囊 HUD 视图
+    ProximityPopupController.swift # 类 AirPods 靠近发现与一键连接大卡片弹窗控制
+    ProximityPopupView.swift  # 类 AirPods 发现与电量卡片视图
     BatteryRing.swift         # 三色电量环组件
     TouchBarController.swift  # Touch Bar 快捷控制
     CoreAdapters.swift        # UI 展示辅助扩展

@@ -160,6 +160,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         menu.addItem(.separator())
 
+        let cardItem = NSMenuItem(title: "弹出耳机发现卡片", action: #selector(triggerShowDiscoveryCard), keyEquivalent: "d")
+        cardItem.target = self
+        menu.addItem(cardItem)
+
+        let autoCardItem = NSMenuItem(title: "自动弹出附近发现弹窗", action: #selector(toggleAutoProximityPopup), keyEquivalent: "")
+        autoCardItem.target = self
+        autoCardItem.state = (proximityPopup?.isAutoPopupEnabled ?? true) ? .on : .off
+        menu.addItem(autoCardItem)
+
         let rescanItem = NSMenuItem(title: L10n.actionRescan, action: #selector(triggerQuickRescan), keyEquivalent: "r")
         rescanItem.target = self
         menu.addItem(rescanItem)
@@ -191,6 +200,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         controller.setDualDevice(!controller.state.dualDevice)
     }
 
+    @objc private func triggerShowDiscoveryCard() {
+        proximityPopup?.showForced()
+    }
+
+    @objc private func toggleAutoProximityPopup() {
+        guard let proximityPopup else { return }
+        proximityPopup.isAutoPopupEnabled.toggle()
+    }
+
     @objc private func triggerQuickRescan() {
         controller.rescanDevices()
     }
@@ -214,6 +232,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let view = PanelView(
             controller: controller,
             onShowHUD: { [weak self] in self?.hud?.showForced() },
+            onShowDiscoveryCard: { [weak self] in
+                self?.closePanel()
+                self?.proximityPopup?.showForced()
+            },
             onOpenSoundSettings: {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension") {
                     NSWorkspace.shared.open(url)
