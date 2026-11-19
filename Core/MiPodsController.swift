@@ -231,11 +231,11 @@ public final class MiPodsController: ObservableObject {
         guard autoConnect, !state.isConnected else { return }
         let connected = found.filter { $0.isSystemConnected }
         let preferred = connected.first(where: { $0.id == activeDeviceID }) ?? connected.first
-        if let target = preferred, let addr = target.classicAddress, let ch = target.rfcommChannelID {
+        if let target = preferred, let addr = target.classicAddress {
             activeTransportKind = .rfcomm
             bleTransport.allowAutoConnect = false
-            append("发现已连接的经典蓝牙耳机 \(target.name)（RFCOMM 通道 \(ch)），直接连接")
-            rfcommTransport.connect(address: addr, channelID: ch, deviceID: target.id, name: target.name)
+            append("发现已连接的经典蓝牙耳机 \(target.name)，准备建立 RFCOMM 连接")
+            rfcommTransport.connect(address: addr, channelID: target.rfcommChannelID, deviceID: target.id, name: target.name)
         }
     }
 
@@ -296,7 +296,6 @@ public final class MiPodsController: ObservableObject {
 
         if dev.transportKind == .rfcomm, let addr = dev.classicAddress {
             bleTransport.allowAutoConnect = false
-            bleTransport.stop()
             activeTransportKind = .rfcomm
             rfcommTransport.connect(address: addr, channelID: dev.rfcommChannelID, deviceID: dev.id, name: dev.name)
         } else {

@@ -21,6 +21,9 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
     private var decoder = FrameDecoder()
     private var sequence: UInt8 = 0
     private var isOpen = false
+    private var pendingDevice: IOBluetoothDevice?
+    private var pendingChannelID: UInt8?
+    private var pendingName: String = ""
 
     public private(set) var state: BLETransport.TransportState = .idle
 
@@ -121,33 +124,81 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
             }
 
             self.activeDeviceID = deviceID
+            self.pendingDevice = device
+            self.pendingChannelID = channelID
+            self.pendingName = name
             self.decoder = FrameDecoder()
             self.sequence = 0
             self.setState(.connecting)
             self.onEvent?(.activeDeviceChanged(deviceID, name))
             self.onEvent?(.name(name))
 
-            if let channelID {
-                self.openChannel(on: device, channelID: channelID, name: name)
+            if device.isConnected() {
+                self.proceedAfterBasebandConnect(device: device, deviceID: deviceID, channelID: channelID, name: name)
                 return
             }
 
-            self.onEvent?(.log("正在连接经典蓝牙并查询 0xFD2D 服务通道（\(name)）…"))
-            _ = device.openConnection()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-                guard let self, self.activeDeviceID == deviceID else { return }
-                _ = device.performSDPQuery(nil)
-                let uuid128 = Self.fd2dBytes.withUnsafeBytes { IOBluetoothSDPUUID(bytes: $0.baseAddress, length: 16) }
-                let uuid16 = IOBluetoothSDPUUID(uuid16: 0xFD2D)
-                let rec = device.getServiceRecord(for: uuid128) ?? uuid16.flatMap { device.getServiceRecord(for: $0) }
-                var ch: BluetoothRFCOMMChannelID = 0
-                if let rec, rec.getRFCOMMChannelID(&ch) == kIOReturnSuccess {
-                    self.openChannel(on: device, channelID: ch, name: name)
-                } else {
-                    self.onEvent?(.log("未查到 0xFD2D RFCOMM 通道，请确认耳机已开盖或尝试重新配对"))
-                    self.setState(.disconnected("未找到 0xFD2D 通道"))
+            self.onEvent?(.log("正在建立经典蓝牙连接（\(name)）…"))
+            let rc = device.openConnection(self)
+            if rc != kIOReturnSuccess {
+                self.onEvent?(.log("经典蓝牙连接发起失败（code=\(rc)）"))
+                self.setState(.disconnected("经典蓝牙连接失败"))
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
+                guard let self, self.activeDeviceID == deviceID, self.pendingDevice === device, !self.isOpen, self.channel == nil else { return }
+                if !device.isConnected() {
+                    self.onEvent?(.log("经典蓝牙连接超时，请确认耳机已开机且未处于休眠"))
+                    self.setState(.disconnected("连接超时"))
                 }
             }
+        }
+    }
+
+    @objc func connectionComplete(_ device: IOBluetoothDevice!, status: IOReturn) {
+        guard let device, pendingDevice === device, let deviceID = activeDeviceID else { return }
+        if status != kIOReturnSuccess {
+            onEvent?(.log("经典蓝牙连接失败（code=\(status)）"))
+            setState(.disconnected("经典蓝牙连接失败"))
+            return
+        }
+        proceedAfterBasebandConnect(device: device, deviceID: deviceID, channelID: pendingChannelID, name: pendingName)
+    }
+
+    private func proceedAfterBasebandConnect(device: IOBluetoothDevice, deviceID: UUID, channelID: UInt8?, name: String) {
+        guard activeDeviceID == deviceID else { return }
+        if let channelID {
+            openChannel(on: device, channelID: channelID, name: name)
+            return
+        }
+        let uuid128 = Self.fd2dBytes.withUnsafeBytes { IOBluetoothSDPUUID(bytes: $0.baseAddress, length: 16) }
+        let uuid16 = IOBluetoothSDPUUID(uuid16: 0xFD2D)
+        if let rec = device.getServiceRecord(for: uuid128) ?? uuid16.flatMap({ device.getServiceRecord(for: $0) }) {
+            var ch: BluetoothRFCOMMChannelID = 0
+            if rec.getRFCOMMChannelID(&ch) == kIOReturnSuccess {
+                openChannel(on: device, channelID: ch, name: name)
+                return
+            }
+        }
+        onEvent?(.log("正在查询 0xFD2D 服务通道（\(name)）…"))
+        let rc = device.performSDPQuery(self)
+        if rc != kIOReturnSuccess {
+            onEvent?(.log("SDP 查询失败（code=\(rc)）"))
+            setState(.disconnected("未找到 0xFD2D 通道"))
+        }
+    }
+
+    @objc func sdpQueryComplete(_ device: IOBluetoothDevice!, status: IOReturn) {
+        guard let device, pendingDevice === device, activeDeviceID != nil else { return }
+        let uuid128 = Self.fd2dBytes.withUnsafeBytes { IOBluetoothSDPUUID(bytes: $0.baseAddress, length: 16) }
+        let uuid16 = IOBluetoothSDPUUID(uuid16: 0xFD2D)
+        let rec = device.getServiceRecord(for: uuid128) ?? uuid16.flatMap { device.getServiceRecord(for: $0) }
+        var ch: BluetoothRFCOMMChannelID = 0
+        if let rec, rec.getRFCOMMChannelID(&ch) == kIOReturnSuccess {
+            openChannel(on: device, channelID: ch, name: pendingName)
+        } else {
+            onEvent?(.log("未查到 0xFD2D RFCOMM 通道（status=\(status)）"))
+            setState(.disconnected("未找到 0xFD2D 通道"))
         }
     }
 
@@ -177,6 +228,8 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
         self.channel = nil
         self.isOpen = false
         self.activeDeviceID = nil
+        self.pendingDevice = nil
+        self.pendingChannelID = nil
         self.setState(.idle)
     }
 
