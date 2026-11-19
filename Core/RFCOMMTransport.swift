@@ -8,6 +8,7 @@ import IOBluetooth
 public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
 
     public var onEvent: ((BLETransport.Event) -> Void)?
+    public var onSystemDeviceConnected: (() -> Void)?
 
     private static let fd2dBytes: [UInt8] = [
         0x00, 0x00, 0xFD, 0x2D,
@@ -25,8 +26,37 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
     private var pendingChannelID: UInt8?
     private var pendingName: String = ""
     private var connectToken: Int = 0
+    private var connectNotification: IOBluetoothUserNotification?
 
     public private(set) var state: BLETransport.TransportState = .idle
+
+    deinit {
+        connectNotification?.unregister()
+    }
+
+    public func startObservingSystemConnections() {
+        DispatchQueue.main.async {
+            guard self.connectNotification == nil else { return }
+            self.connectNotification = IOBluetoothDevice.register(
+                forConnectNotifications: self,
+                selector: #selector(self.handleSystemBluetoothConnected(_:device:))
+            )
+        }
+    }
+
+    public func stopObservingSystemConnections() {
+        DispatchQueue.main.async {
+            self.connectNotification?.unregister()
+            self.connectNotification = nil
+        }
+    }
+
+    @objc private func handleSystemBluetoothConnected(_ notification: IOBluetoothUserNotification?, device: IOBluetoothDevice?) {
+        // Give macOS Bluetooth a moment to finish profile/SDP setup before querying 0xFD2D.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.onSystemDeviceConnected?()
+        }
+    }
 
     // MARK: - Discovery
 

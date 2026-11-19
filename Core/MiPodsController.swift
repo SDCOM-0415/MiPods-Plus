@@ -145,12 +145,19 @@ public final class MiPodsController: ObservableObject {
         rfcommTransport.onEvent = { [weak self] event in
             Task { @MainActor [weak self] in self?.handle(event, from: .rfcomm) }
         }
+        rfcommTransport.onSystemDeviceConnected = { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.state.isConnected, !self.state.statusDetail.contains("连接中") else { return }
+                self.refreshRFCOMMDevices(autoConnect: true)
+            }
+        }
     }
 
     // MARK: - Lifecycle & Multi-Device
 
     public func start() {
         append("开始多设备扫描（经典蓝牙 RFCOMM 0xFD2D + BLE 0xAF00）")
+        rfcommTransport.startObservingSystemConnections()
         refreshRFCOMMDevices(autoConnect: true)
         bleTransport.allowAutoConnect = !state.isConnected && activeTransportKind != .rfcomm
         bleTransport.start()
@@ -161,6 +168,7 @@ public final class MiPodsController: ObservableObject {
         pollTask?.cancel()
         connectTimeoutTask?.cancel()
         bleTransport.stop()
+        rfcommTransport.stopObservingSystemConnections()
         rfcommTransport.disconnect()
     }
 
