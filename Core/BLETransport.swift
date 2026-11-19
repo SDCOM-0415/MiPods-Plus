@@ -31,6 +31,7 @@ public final class BLETransport: NSObject {
     public static let serviceAF00 = CBUUID(string: "AF00")
 
     public var onEvent: ((Event) -> Void)?
+    public var onFastPairBeacon: ((XiaomiFastPairBeacon, Int) -> Void)?
 
     /// Optional preferred device UUID (persisted by controller for auto-reconnect).
     public var preferredDeviceID: UUID?
@@ -305,17 +306,27 @@ extension BLETransport: CBCentralManagerDelegate {
             return
         }
 
+        let mfrData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
+        let fastPairBeacon = mfrData.flatMap { XiaomiFastPairBeacon.parse([UInt8]($0)) }
+        if let fastPairBeacon {
+            onFastPairBeacon?(fastPairBeacon, RSSI.intValue)
+        }
+
         let advertisesAF00 = adServices.contains(Self.serviceAF00)
         let hasEarbudName = DiscoveredDevice.isEarbudName(adName) || DiscoveredDevice.isEarbudName(peripheral.name)
         let isPreferred = (preferredDeviceID != nil && preferredDeviceID == peripheral.identifier)
 
-        // Reject anonymous Xiaomi 0x038F phone/tablet/Mac interconnect beacons that neither
-        // advertise AF00 nor carry an earbud model name.
-        guard advertisesAF00 || hasEarbudName || isPreferred else {
+        // Reject anonymous Xiaomi 0x038F phone/tablet/Mac interconnect beacons (8F 03 13 13 ...)
+        // that neither advertise AF00, carry an earbud model name, nor match FastPair (8F 03 16 01 ...).
+        guard advertisesAF00 || hasEarbudName || isPreferred || fastPairBeacon != nil else {
             return
         }
 
-        let mfrData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
+        // FastPair-only beacons without AF00/name are handled via Classic RFCOMM / pairing in MiPodsController.
+        if fastPairBeacon != nil && !advertisesAF00 && !hasEarbudName && !isPreferred {
+            return
+        }
+
         let name = rawName.isEmpty ? "小米耳机" : rawName
 
         peripheralsByID[peripheral.identifier] = peripheral
@@ -324,6 +335,7 @@ extension BLETransport: CBCentralManagerDelegate {
         item.rssi = RSSI.intValue
         item.lastSeen = Date()
         item.mfrHex = mfrData?.hexString
+        item.isFastPairBeacon = fastPairBeacon != nil
         devicesByID[peripheral.identifier] = item
         emitDevices()
 

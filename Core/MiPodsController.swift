@@ -124,6 +124,7 @@ public final class MiPodsController: ObservableObject {
     private var inquiryDevices: [DiscoveredDevice] = []
     private let classicDiscovery = ClassicDiscovery()
     private var reachableAddresses: Set<String> = []
+    private var fastPairBeacons: [String: (mac: String, rssi: Int, lastSeen: Date)] = [:]
     private var connectTimeoutTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var pendingCommandAfterAuth: (() -> Void)?
@@ -144,6 +145,14 @@ public final class MiPodsController: ObservableObject {
         }
         bleTransport.onEvent = { [weak self] event in
             Task { @MainActor [weak self] in self?.handle(event, from: .ble) }
+        }
+        bleTransport.onFastPairBeacon = { [weak self] beacon, rssi in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let key = XiaomiFastPairBeacon.normalizedMACKey(beacon.classicMAC)
+                self.fastPairBeacons[key] = (beacon.classicMAC, rssi, Date())
+                self.refreshRFCOMMDevices(autoConnect: false)
+            }
         }
         rfcommTransport.onEvent = { [weak self] event in
             Task { @MainActor [weak self] in self?.handle(event, from: .rfcomm) }
@@ -214,7 +223,8 @@ public final class MiPodsController: ObservableObject {
     }
 
     private func refreshRFCOMMDevices(autoConnect: Bool) {
-        let found = rfcommTransport.discoverPairedDevices(reachable: reachableAddresses)
+        let rssiMap = fastPairBeacons.mapValues(\.rssi)
+        let found = rfcommTransport.discoverPairedDevices(reachable: reachableAddresses, beaconRSSI: rssiMap)
         rfcommDevices = found
         mergeDiscoveredDevices()
 
@@ -233,8 +243,24 @@ public final class MiPodsController: ObservableObject {
         var combined: [DiscoveredDevice] = []
         var seen = Set<UUID>()
         let pairedIDs = Set(rfcommDevices.map(\.id))
-        let pending = inquiryDevices.filter { !pairedIDs.contains($0.id) }
-        for dev in rfcommDevices + pending + bleDevices {
+        let pairedKeys = Set(rfcommDevices.compactMap { $0.classicAddress.map(XiaomiFastPairBeacon.normalizedMACKey) })
+        let inquiryPending = inquiryDevices.filter { !pairedIDs.contains($0.id) }
+        let inquiryKeys = Set(inquiryPending.compactMap { $0.classicAddress.map(XiaomiFastPairBeacon.normalizedMACKey) })
+        let beaconPending: [DiscoveredDevice] = fastPairBeacons.compactMap { key, entry in
+            guard !pairedKeys.contains(key), !inquiryKeys.contains(key) else { return nil }
+            return DiscoveredDevice(
+                id: DiscoveredDevice.classicUUID(for: entry.mac),
+                name: "小米/Redmi 耳机（靠近/配对）",
+                rssi: entry.rssi,
+                lastSeen: entry.lastSeen,
+                transportKind: .rfcomm,
+                classicAddress: entry.mac,
+                needsPairing: true,
+                isNearby: true,
+                isFastPairBeacon: true
+            )
+        }
+        for dev in rfcommDevices + inquiryPending + beaconPending + bleDevices {
             if seen.insert(dev.id).inserted {
                 combined.append(dev)
             }
@@ -268,11 +294,11 @@ public final class MiPodsController: ObservableObject {
             return
         }
 
-        if dev.transportKind == .rfcomm, let addr = dev.classicAddress, let ch = dev.rfcommChannelID {
+        if dev.transportKind == .rfcomm, let addr = dev.classicAddress {
             bleTransport.allowAutoConnect = false
             bleTransport.stop()
             activeTransportKind = .rfcomm
-            rfcommTransport.connect(address: addr, channelID: ch, deviceID: dev.id, name: dev.name)
+            rfcommTransport.connect(address: addr, channelID: dev.rfcommChannelID, deviceID: dev.id, name: dev.name)
         } else {
             rfcommTransport.disconnect()
             activeTransportKind = .ble

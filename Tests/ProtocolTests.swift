@@ -142,4 +142,22 @@ final class ProtocolTests: XCTestCase {
         XCTAssertFalse(DiscoveredDevice.isEarbudName("Xiaomi 15 Pro"))
         XCTAssertFalse(DiscoveredDevice.isEarbudName("Xiaomi Pad 7"))
     }
+
+    func testXiaomiFastPairBeaconParsing() {
+        // Real Redmi Buds 6 青春版 BLE 0x038F advertisement (MAC 78-99-87-EE-FC-3A)
+        let earbudHex = "8F0316011BA84AE4E4594FE3959978873AFCEE049978873AFCEE"
+        let earbudBytes = stride(from: 0, to: earbudHex.count, by: 2).compactMap {
+            UInt8(earbudHex.dropFirst($0).prefix(2), radix: 16)
+        }
+        let beacon = XiaomiFastPairBeacon.parse(earbudBytes)
+        XCTAssertNotNil(beacon)
+        XCTAssertEqual(beacon?.classicMAC, "78-99-87-EE-FC-3A")
+
+        // Real Xiaomi phone 0x038F interconnect advertisement (8F 03 13 13 ...) must be rejected
+        let phoneHex = "8F031313A381AA4A0AAF3473C764285344434F4DE79A84"
+        let phoneBytes = stride(from: 0, to: phoneHex.count, by: 2).compactMap {
+            UInt8(phoneHex.dropFirst($0).prefix(2), radix: 16)
+        }
+        XCTAssertNil(XiaomiFastPairBeacon.parse(phoneBytes))
+    }
 }

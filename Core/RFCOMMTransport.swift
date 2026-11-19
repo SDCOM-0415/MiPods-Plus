@@ -27,7 +27,7 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
     // MARK: - Discovery
 
     /// Scans paired Classic Bluetooth devices for Xiaomi `0xFD2D` RFCOMM service records.
-    public func discoverPairedDevices(reachable: Set<String> = []) -> [DiscoveredDevice] {
+    public func discoverPairedDevices(reachable: Set<String> = [], beaconRSSI: [String: Int] = [:]) -> [DiscoveredDevice] {
         guard let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else {
             return []
         }
@@ -42,25 +42,35 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
             guard let addr = device.addressString, !addr.isEmpty else { continue }
             let name = (device.name?.isEmpty == false ? device.name! : addr)
             let isConnected = device.isConnected()
+            let normKey = XiaomiFastPairBeacon.normalizedMACKey(addr)
+            let isReachable = reachable.contains(addr) || reachable.contains(normKey) || beaconRSSI[normKey] != nil
 
             var record: IOBluetoothSDPServiceRecord? = device.getServiceRecord(for: uuid128)
             if record == nil, let uuid16 { record = device.getServiceRecord(for: uuid16) }
 
-            // If SDP cache is empty on a currently connected Xiaomi/Redmi/Buds headset, query it once.
-            if record == nil && (isConnected || reachable.contains(addr)) && (device.services?.isEmpty ?? true) && Self.looksLikeEarbuds(name) {
+            if record == nil && isConnected && (device.services?.isEmpty ?? true) && Self.looksLikeEarbuds(name) {
                 _ = device.performSDPQuery(nil)
                 record = device.getServiceRecord(for: uuid128)
                 if record == nil, let uuid16 { record = device.getServiceRecord(for: uuid16) }
             }
 
-            guard let record else { continue }
+            var resolvedChannelID: UInt8?
+            if let record {
+                var channelID: BluetoothRFCOMMChannelID = 0
+                if record.getRFCOMMChannelID(&channelID) == kIOReturnSuccess {
+                    resolvedChannelID = channelID
+                }
+            }
 
-            var channelID: BluetoothRFCOMMChannelID = 0
-            guard record.getRFCOMMChannelID(&channelID) == kIOReturnSuccess else { continue }
+            // Emit if 0xFD2D SDP is known OR if this is a reachable/connected Xiaomi earbud awaiting SDP.
+            guard resolvedChannelID != nil || ((isConnected || isReachable) && DiscoveredDevice.isEarbudName(name)) else {
+                continue
+            }
 
             let id = DiscoveredDevice.classicUUID(for: addr)
             let rssiVal = isConnected ? Int(device.rawRSSI()) : nil
-            let rssi = (rssiVal != nil && rssiVal != 127) ? rssiVal : nil
+            let classicRSSI = (rssiVal != nil && rssiVal != 127) ? rssiVal : nil
+            let rssi = classicRSSI ?? beaconRSSI[normKey]
 
             found.append(DiscoveredDevice(
                 id: id,
@@ -70,8 +80,8 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
                 lastSeen: Date(),
                 transportKind: .rfcomm,
                 classicAddress: addr,
-                rfcommChannelID: channelID,
-                isNearby: reachable.contains(addr)
+                rfcommChannelID: resolvedChannelID,
+                isNearby: isReachable
             ))
         }
 
@@ -100,7 +110,7 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
 
     // MARK: - Connection & I/O
 
-    public func connect(address: String, channelID: UInt8, deviceID: UUID, name: String) {
+    public func connect(address: String, channelID: UInt8?, deviceID: UUID, name: String) {
         DispatchQueue.main.async {
             self.disconnectOnMain()
 
@@ -116,17 +126,41 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
             self.setState(.connecting)
             self.onEvent?(.activeDeviceChanged(deviceID, name))
             self.onEvent?(.name(name))
-            self.onEvent?(.log("正在打开经典蓝牙 RFCOMM 通道 \(channelID)（\(name)）"))
 
-            var newChannel: IOBluetoothRFCOMMChannel?
-            let rc = device.openRFCOMMChannelAsync(&newChannel, withChannelID: channelID, delegate: self)
-            if rc != kIOReturnSuccess {
-                self.onEvent?(.log("打开 RFCOMM 通道失败（code=\(rc)）"))
-                self.setState(.disconnected("RFCOMM 连接失败"))
+            if let channelID {
+                self.openChannel(on: device, channelID: channelID, name: name)
                 return
             }
-            self.channel = newChannel
+
+            self.onEvent?(.log("正在连接经典蓝牙并查询 0xFD2D 服务通道（\(name)）…"))
+            _ = device.openConnection()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                guard let self, self.activeDeviceID == deviceID else { return }
+                _ = device.performSDPQuery(nil)
+                let uuid128 = Self.fd2dBytes.withUnsafeBytes { IOBluetoothSDPUUID(bytes: $0.baseAddress, length: 16) }
+                let uuid16 = IOBluetoothSDPUUID(uuid16: 0xFD2D)
+                let rec = device.getServiceRecord(for: uuid128) ?? uuid16.flatMap { device.getServiceRecord(for: $0) }
+                var ch: BluetoothRFCOMMChannelID = 0
+                if let rec, rec.getRFCOMMChannelID(&ch) == kIOReturnSuccess {
+                    self.openChannel(on: device, channelID: ch, name: name)
+                } else {
+                    self.onEvent?(.log("未查到 0xFD2D RFCOMM 通道，请确认耳机已开盖或尝试重新配对"))
+                    self.setState(.disconnected("未找到 0xFD2D 通道"))
+                }
+            }
         }
+    }
+
+    private func openChannel(on device: IOBluetoothDevice, channelID: UInt8, name: String) {
+        self.onEvent?(.log("正在打开经典蓝牙 RFCOMM 通道 \(channelID)（\(name)）"))
+        var newChannel: IOBluetoothRFCOMMChannel?
+        let rc = device.openRFCOMMChannelAsync(&newChannel, withChannelID: channelID, delegate: self)
+        if rc != kIOReturnSuccess {
+            self.onEvent?(.log("打开 RFCOMM 通道失败（code=\(rc)）"))
+            self.setState(.disconnected("RFCOMM 连接失败"))
+            return
+        }
+        self.channel = newChannel
     }
 
     public func disconnect() {

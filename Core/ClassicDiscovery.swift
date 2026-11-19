@@ -83,7 +83,7 @@ final class ClassicDiscovery: NSObject, IOBluetoothDeviceInquiryDelegate, IOBlue
             self?.runInquiry()
         }
         restartWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: item)
     }
 
     private func consider(_ device: IOBluetoothDevice) {

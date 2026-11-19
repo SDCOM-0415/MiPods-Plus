@@ -21,6 +21,8 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
     public var needsPairing: Bool
     /// True for paired (not yet connected) earbuds that currently answer a Classic page request, i.e. powered on and in range.
     public var isNearby: Bool
+    /// True when discovered via Xiaomi's `0x038F 16 01` earbuds proximity BLE beacon.
+    public var isFastPairBeacon: Bool
 
     public init(id: UUID,
                 name: String,
@@ -32,7 +34,8 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
                 classicAddress: String? = nil,
                 rfcommChannelID: UInt8? = nil,
                 needsPairing: Bool = false,
-                isNearby: Bool = false) {
+                isNearby: Bool = false,
+                isFastPairBeacon: Bool = false) {
         self.id = id
         self.name = name
         self.rssi = rssi
@@ -44,6 +47,7 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
         self.rfcommChannelID = rfcommChannelID
         self.needsPairing = needsPairing
         self.isNearby = isNearby
+        self.isFastPairBeacon = isFastPairBeacon
     }
 
     public var isBudsSeries: Bool {
@@ -54,7 +58,7 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
     /// system-connected AF00 peripheral, or carries an explicit earbud model name).
     /// Anonymous `0x038F` BLE broadcasts from Xiaomi phones/laptops/routers return `false`.
     public var isConfirmedEarbud: Bool {
-        if transportKind == .rfcomm || isSystemConnected {
+        if transportKind == .rfcomm || isSystemConnected || isFastPairBeacon {
             return true
         }
         return Self.isEarbudName(name)
@@ -84,6 +88,31 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
         let padded = String(hex.padding(toLength: 12, withPad: "0", startingAt: 0).prefix(12))
         let uuidString = "0000FD2D-0000-1000-8000-\(padded)"
         return UUID(uuidString: uuidString) ?? UUID()
+    }
+}
+
+/// Xiaomi `0x038F` BLE FastPair / proximity pairing beacon (`8F 03 16 01 ...`).
+/// Phones/tablets broadcast `8F 03 13 13 ...` instead and are rejected by `parse(_:)`.
+public struct XiaomiFastPairBeacon: Sendable, Equatable {
+    public let classicMAC: String
+
+    public static func normalizedMACKey(_ address: String) -> String {
+        address.uppercased().filter(\.isHexDigit)
+    }
+
+    public static func parse(_ bytes: [UInt8]) -> XiaomiFastPairBeacon? {
+        guard bytes.count >= 19,
+              bytes[0] == 0x8F,
+              bytes[1] == 0x03,
+              bytes[2] == 0x16,
+              bytes[3] == 0x01 else {
+            return nil
+        }
+        // Bytes 13..18 encode the Classic MAC as [b1, b0, b2, b5, b4, b3]
+        // (verified on Redmi Buds 6 青春版: 99 78 87 3A FC EE -> 78-99-87-EE-FC-3A).
+        let macBytes: [UInt8] = [bytes[14], bytes[13], bytes[15], bytes[18], bytes[17], bytes[16]]
+        let mac = macBytes.map { String(format: "%02X", $0) }.joined(separator: "-")
+        return XiaomiFastPairBeacon(classicMAC: mac)
     }
 }
 
