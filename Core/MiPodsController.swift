@@ -873,11 +873,32 @@ public final class MiPodsController: ObservableObject {
         state.capabilities = caps
     }
 
+    public static var logFileURL: URL {
+        let logs = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Logs", isDirectory: true)
+        return logs.appendingPathComponent("MiPods-Plus.log")
+    }
+
     private func append(_ line: String) {
         let stamp = Self.timeFormatter.string(from: Date())
-        state.log.append("[\(stamp)] \(line)")
+        let formatted = "[\(stamp)] \(line)"
+        state.log.append(formatted)
         if state.log.count > 300 {
             state.log.removeFirst(state.log.count - 300)
+        }
+        Self.writeToLogFile(formatted)
+    }
+
+    private static func writeToLogFile(_ line: String) {
+        let url = logFileURL
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard let data = (line + "\n").data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: url, options: .atomic)
         }
     }
 

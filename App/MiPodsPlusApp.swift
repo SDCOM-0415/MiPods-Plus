@@ -192,6 +192,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         captureItem.state = controller.captureAdvertisements ? .on : .off
         menu.addItem(captureItem)
 
+        let copyLogItem = NSMenuItem(title: "复制诊断日志", action: #selector(copyDiagnosticLogs), keyEquivalent: "")
+        copyLogItem.target = self
+        menu.addItem(copyLogItem)
+
         let rescanItem = NSMenuItem(title: L10n.actionRescan, action: #selector(triggerQuickRescan), keyEquivalent: "r")
         rescanItem.target = self
         menu.addItem(rescanItem)
@@ -234,6 +238,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func toggleCaptureAdvertisements() {
         controller.captureAdvertisements.toggle()
+    }
+
+    @objc private func copyDiagnosticLogs() {
+        let text = controller.state.log.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     @objc private func triggerQuickRescan() {
