@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
     private var hud: HUDController?
+    private var proximityPopup: ProximityPopupController?
     private var touchBar: TouchBarController?
     private var cancellables = Set<AnyCancellable>()
     private var wasConnected = false
@@ -33,6 +34,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let hud = HUDController(controller: controller)
         self.hud = hud
+
+        let proximityPopup = ProximityPopupController(controller: controller)
+        proximityPopup.onOpenMainPanel = { [weak self] in
+            self?.openPanel()
+        }
+        self.proximityPopup = proximityPopup
 
         let touchBar = TouchBarController(controller: controller)
         self.touchBar = touchBar
@@ -45,9 +52,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
                 if state.isConnected && !self.wasConnected {
                     self.hud?.show()
+                    self.proximityPopup?.showConnectedCard()
                 }
                 self.wasConnected = state.isConnected
                 self.hud?.updateIfVisible()
+                self.proximityPopup?.updateIfVisible()
+            }
+            .store(in: &cancellables)
+
+        controller.$discoveredDevices
+            .receive(on: RunLoop.main)
+            .sink { [weak self] devices in
+                self?.proximityPopup?.handleDiscoveredDevices(devices)
             }
             .store(in: &cancellables)
 
@@ -57,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                 self?.openPanel()
                 self?.hud?.showForced()
+                self?.proximityPopup?.showForced()
             }
         }
 
@@ -68,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         hud?.hide()
+        proximityPopup?.hide(animated: false)
     }
 
     private func setupStatusItem() {
