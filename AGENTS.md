@@ -10,40 +10,31 @@
 
 ```text
 MiPodsPlusCore/               # 纯逻辑与蓝牙通信核心库（不依赖 SwiftUI / AppKit）
-  Controller/
-    MiPodsController.swift    # @MainActor 混合状态控制器（双通道调度、多设备切换、轮询与混合认证）
-  Models/
-    Models.swift              # MiPodsState、DiscoveredDevice、TransportKind、能力位与枚举
-  Protocol/
-    Protocol.swift            # FE DC BA ... EF 帧编解码、SAFER+ 认证、TLV/ConfigRecord、10 段 EQ 编解码
-  Transports/
-    BLETransport.swift        # CoreBluetooth BLE 0xAF00 传输层（含小米手机防误连过滤）
-    RFCOMMTransport.swift     # IOBluetooth 经典蓝牙 RFCOMM 0xFD2D 传输层
+  MiPodsController.swift      # @MainActor 混合状态控制器（双通道调度、多设备切换、轮询与混合认证）
+  Models.swift                # MiPodsState、DiscoveredDevice、TransportKind、能力位与枚举
+  Protocol.swift              # FE DC BA ... EF 帧编解码、SAFER+ 认证、TLV/ConfigRecord、10 段 EQ 编解码
+  BLETransport.swift          # CoreBluetooth BLE 0xAF00 传输层（含小米手机防误连过滤）
+  RFCOMMTransport.swift       # IOBluetooth 经典蓝牙 RFCOMM 0xFD2D 传输层
 MiPodsPlusApp/                # macOS 菜单栏与桌面 UI（AppKit + SwiftUI）
-  App/
-    MiPodsPlusApp.swift       # 应用入口、菜单栏图标/右键快捷菜单、Popover 管理
-    TouchBarController.swift  # Touch Bar 快捷控制
-  Panel/
-    PanelView.swift           # 主控制面板与多设备切换器
-  Popups/
-    HUDController.swift       # 类 AirPods 顶部悬浮连接胶囊 HUD 窗口控制
-    HUDView.swift             # 顶部悬浮胶囊 HUD 视图
-    ProximityPopupController.swift # 类 AirPods 靠近发现与一键连接大卡片弹窗控制
-    ProximityPopupView.swift  # 类 AirPods 发现与电量卡片视图
-  Components/
-    BatteryRing.swift         # 三色电量环组件
-  Support/
-    Compatibility.swift       # macOS 12–13 隔离兼容层（严禁污染 macOS 14+ 原生代码）
-    CoreAdapters.swift        # UI 展示辅助扩展
-    Titles.swift              # 本地化文案与标题映射
-Tests/
-  MiPodsPlusCoreTests/
-    ProtocolTests.swift       # 协议帧、电量、ConfigRecord、EQ、SAFER+ 与设备模型单元测试
+  MiPodsPlusApp.swift         # 应用入口、菜单栏图标/右键快捷菜单、Popover 管理
+  PanelView.swift             # 主控制面板与多设备切换器
+  HUDController.swift         # 类 AirPods 顶部悬浮连接胶囊 HUD 窗口控制
+  HUDView.swift               # 顶部悬浮胶囊 HUD 视图
+  ProximityPopupController.swift # 类 AirPods 靠近发现与一键连接大卡片弹窗控制
+  ProximityPopupView.swift    # 类 AirPods 发现与电量卡片视图
+  BatteryRing.swift           # 三色电量环组件
+  TouchBarController.swift    # Touch Bar 快捷控制
+  Compatibility.swift         # macOS 12–13 隔离兼容层（严禁污染 macOS 14+ 原生代码）
+  CoreAdapters.swift          # UI 展示辅助扩展
+  Titles.swift                # 本地化文案与标题映射
+Tests/                        # 单元测试
+  ProtocolTests.swift         # 协议帧、电量、ConfigRecord、EQ、SAFER+ 与设备模型单元测试
 ```
 
 **分层红线**：
 - `MiPodsPlusCore` 严禁引入 `SwiftUI` 或 `AppKit`。
 - `MiPodsPlusApp` 不得直接拼装蓝牙字节帧或操作 `CBPeripheral` / `IOBluetoothRFCOMMChannel`，所有控制操作必须通过 `MiPodsController` 暴露的方法下发。
+- **扁平目录约定**：保持 `MiPodsPlusCore/`、`MiPodsPlusApp/`、`Tests/` 三个顶层目录内部文件直接平铺，不要再拆多层子文件夹。
 
 ---
 
@@ -69,7 +60,7 @@ Tests/
 ## 3. macOS 兼容性与通用二进制红线
 
 - **最低部署目标**：`Package.swift`（`.macOS("12.0")`）与 `Makefile`（`LSMinimumSystemVersion = 12.0`）必须保持一致。
-- **隔离兼容原则**：针对 macOS 12–13 缺失的 API（如 `SMAppService`、新版 SwiftUI 修饰符、SF Symbols 等），**必须**通过 `#available(macOS 14.0, *)` / `#available(macOS 13.0, *)` 条件分支或封装在 `MiPodsPlusApp/Support/Compatibility.swift` 中实现降级，**不得为兼容旧系统而回退或劣化 macOS 14+ 的原生行为**。
+- **隔离兼容原则**：针对 macOS 12–13 缺失的 API（如 `SMAppService`、新版 SwiftUI 修饰符、SF Symbols 等），**必须**通过 `#available(macOS 14.0, *)` / `#available(macOS 13.0, *)` 条件分支或封装在 `MiPodsPlusApp/Compatibility.swift` 中实现降级，**不得为兼容旧系统而回退或劣化 macOS 14+ 的原生行为**。
 - **通用二进制构建**：`Makefile` 默认 `SWIFT_FLAGS ?= -c release --arch arm64 --arch x86_64`，不要将其改回单架构调试构建；`PRODUCT` 路径必须通过 `swift build $(SWIFT_FLAGS) --show-bin-path` 动态获取，禁止硬编码 `.build/...`。
 
 ---
@@ -90,7 +81,7 @@ Tests/
 
 ## 5. 代码修改、测试与开源合规
 
-- **测试要求**：凡修改 `Protocol.swift`、`Models.swift` 中的帧编解码、TLV 解析、EQ 编解码、SAFER+ 或设备 UUID 生成逻辑，必须在 `Tests/MiPodsPlusCoreTests/ProtocolTests.swift` 中补充或更新对应单元测试。
+- **测试要求**：凡修改 `Protocol.swift`、`Models.swift` 中的帧编解码、TLV 解析、EQ 编解码、SAFER+ 或设备 UUID 生成逻辑，必须在 `Tests/ProtocolTests.swift` 中补充或更新对应单元测试。
 - **文档与注释**：保留与本次改动无关的既有注释；面向用户的界面文案与日志默认使用简体中文，保持简洁一致。
 - **开源许可与致谢规范**：
   - 本项目采用 **AGPL-3.0** 许可（见 `LICENSE`）。

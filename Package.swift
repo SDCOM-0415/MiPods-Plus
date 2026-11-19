@@ -18,7 +18,7 @@ let package = Package(
         .testTarget(
             name: "MiPodsPlusCoreTests",
             dependencies: ["MiPodsPlusCore"],
-            path: "Tests/MiPodsPlusCoreTests"
+            path: "Tests"
         )
     ]
 )
