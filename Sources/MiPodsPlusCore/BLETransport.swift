@@ -284,17 +284,18 @@ extension BLETransport: CBCentralManagerDelegate {
             return
         }
 
+        let advertisesAF00 = adServices.contains(Self.serviceAF00)
+        let hasEarbudName = DiscoveredDevice.isEarbudName(adName) || DiscoveredDevice.isEarbudName(peripheral.name)
+        let isPreferred = (preferredDeviceID != nil && preferredDeviceID == peripheral.identifier)
+
+        // Reject anonymous Xiaomi 0x038F phone/tablet/Mac interconnect beacons that neither
+        // advertise AF00 nor carry an earbud model name.
+        guard advertisesAF00 || hasEarbudName || isPreferred else {
+            return
+        }
+
         let mfrData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
-        var isXiaomi = false
-        if let mfrData, mfrData.count >= 2 {
-            let company = UInt16(mfrData[0]) | (UInt16(mfrData[1]) << 8)
-            isXiaomi = company == Self.xiaomiCompanyID
-        }
-        let name = rawName.isEmpty ? "小米设备" : rawName
-        if !isXiaomi && (isXiaomiName(adName) || isXiaomiName(peripheral.name)) {
-            isXiaomi = true
-        }
-        guard isXiaomi else { return }
+        let name = rawName.isEmpty ? "小米耳机" : rawName
 
         peripheralsByID[peripheral.identifier] = peripheral
         var item = devicesByID[peripheral.identifier] ?? DiscoveredDevice(id: peripheral.identifier, name: name)

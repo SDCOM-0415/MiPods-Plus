@@ -16,11 +16,16 @@ final class ProximityPopupController {
     private var dismissTask: Task<Void, Never>?
     private var currentCandidate: DiscoveredDevice?
     private var lastAutoPopupByDevice: [UUID: Date] = [:]
+    private var previouslyVisibleDeviceIDs: Set<UUID> = []
+    private var userDismissedDeviceIDs: Set<UUID> = []
+    private var lastGlobalPopupTime: Date = .distantPast
 
     private static let autoPopupEnabledKey = "mipods.plus.proximityAutoPopup"
-    private let cooldownPerDevice: TimeInterval = 45
+    private let cooldownPerDevice: TimeInterval = 300 // 5 minutes per device
+    private let globalCooldown: TimeInterval = 60     // at least 60s between any auto-popups
+    private let nearRSSIThreshold: Int = -62          // only very close earbuds trigger auto-popup
     private let connectedAutoDismissDelay: TimeInterval = 5.5
-    private let discoveredAutoDismissDelay: TimeInterval = 10.0
+    private let discoveredAutoDismissDelay: TimeInterval = 8.0
 
     var onOpenMainPanel: (() -> Void)?
 
@@ -40,37 +45,57 @@ final class ProximityPopupController {
         self.controller = controller
     }
 
-    /// Evaluates newly discovered devices and pops up the discovery card when a nearby earbud appears while disconnected.
+    /// Evaluates newly discovered devices and pops up the discovery card ONLY when a confirmed earbud
+    /// newly enters close proximity while disconnected.
     func handleDiscoveredDevices(_ devices: [DiscoveredDevice]) {
-        guard isAutoPopupEnabled, let controller, !controller.state.isConnected else { return }
-
-        // Pick a strong-signal nearby earbud (or a system-connected one not yet attached).
-        let candidate = devices.first { dev in
+        // Filter strictly to confirmed earbuds that are either system-connected or very close (RSSI >= -62 dBm).
+        let eligible = devices.filter { dev in
+            guard dev.isConfirmedEarbud else { return false }
             if dev.isSystemConnected { return true }
-            if let rssi = dev.rssi, rssi >= -75 { return true }
+            if let rssi = dev.rssi, rssi >= nearRSSIThreshold { return true }
             return false
         }
-        guard let candidate else { return }
+
+        let currentIDs = Set(eligible.map(\.id))
+        // Devices that just entered proximity in this update (edge-triggered, not continuous):
+        let newlyEntered = eligible.filter { !previouslyVisibleDeviceIDs.contains($0.id) }
+        // Clear user-dismissed flag once a device leaves proximity so next time it's opened it can pop up again.
+        userDismissedDeviceIDs.formIntersection(currentIDs)
+        previouslyVisibleDeviceIDs = currentIDs
+
+        guard isAutoPopupEnabled, let controller, !controller.state.isConnected else { return }
+        guard panel?.isVisible != true else { return }
 
         let now = Date()
-        if let last = lastAutoPopupByDevice[candidate.id],
-           now.timeIntervalSince(last) < cooldownPerDevice {
-            return
-        }
+        guard now.timeIntervalSince(lastGlobalPopupTime) >= globalCooldown else { return }
+
+        guard let candidate = newlyEntered.first(where: { dev in
+            guard !userDismissedDeviceIDs.contains(dev.id) else { return false }
+            if let last = lastAutoPopupByDevice[dev.id],
+               now.timeIntervalSince(last) < cooldownPerDevice {
+                return false
+            }
+            return true
+        }) else { return }
+
         lastAutoPopupByDevice[candidate.id] = now
+        lastGlobalPopupTime = now
         show(device: candidate, autoDismissAfter: discoveredAutoDismissDelay)
     }
 
-    /// Shows the AirPods-style card on connection.
-    func showConnectedCard() {
-        guard isAutoPopupEnabled else { return }
-        show(device: currentCandidate, autoDismissAfter: connectedAutoDismissDelay)
+    /// Updates or morphs the card if it was already on screen when connection succeeded.
+    func handleConnectedTransition() {
+        userDismissedDeviceIDs.removeAll()
+        if panel?.isVisible == true {
+            show(device: currentCandidate, autoDismissAfter: connectedAutoDismissDelay)
+        }
     }
 
     /// Explicitly opens the card (from menu or panel button).
     func showForced() {
-        let candidate = controller?.discoveredDevices.first(where: { $0.id == controller?.activeDeviceID })
-            ?? controller?.discoveredDevices.first
+        let confirmed = controller?.discoveredDevices.filter(\.isConfirmedEarbud) ?? []
+        let candidate = confirmed.first(where: { $0.id == controller?.activeDeviceID })
+            ?? confirmed.first
         show(device: candidate, autoDismissAfter: discoveredAutoDismissDelay)
     }
 
@@ -103,7 +128,11 @@ final class ProximityPopupController {
         scheduleAutoDismiss(after: delay)
     }
 
-    func hide(animated: Bool = true) {
+    func hide(animated: Bool = true, markDismissedByUser: Bool = false) {
+        if markDismissedByUser, let id = currentCandidate?.id {
+            userDismissedDeviceIDs.insert(id)
+            lastAutoPopupByDevice[id] = Date()
+        }
         dismissTask?.cancel()
         dismissTask = nil
         guard let panel, panel.isVisible else { return }
@@ -150,7 +179,7 @@ final class ProximityPopupController {
                 self?.onOpenMainPanel?()
             },
             onClose: { [weak self] in
-                self?.hide(animated: true)
+                self?.hide(animated: true, markDismissedByUser: true)
             }
         )
 

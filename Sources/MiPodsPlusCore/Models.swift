@@ -42,6 +42,33 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
         name.localizedCaseInsensitiveContains("buds")
     }
 
+    /// True only when this device is positively identified as an earbud (either Classic Bluetooth RFCOMM 0xFD2D,
+    /// system-connected AF00 peripheral, or carries an explicit earbud model name).
+    /// Anonymous `0x038F` BLE broadcasts from Xiaomi phones/laptops/routers return `false`.
+    public var isConfirmedEarbud: Bool {
+        if transportKind == .rfcomm || isSystemConnected {
+            return true
+        }
+        return Self.isEarbudName(name)
+    }
+
+    public static func isEarbudName(_ rawName: String?) -> Bool {
+        guard let rawName, !rawName.isEmpty else { return false }
+        let lower = rawName.lowercased()
+        let nonEarbudHints = [
+            "turbo", "phone", "pad", "watch", "band", "note", "redmi k",
+            "mix", "civi", "tv", "book", "laptop", "router", "speaker", "sound"
+        ]
+        if nonEarbudHints.contains(where: { lower.contains($0) }) && !lower.contains("buds") {
+            return false
+        }
+        let earbudKeywords = [
+            "buds", "耳机", "earphone", "earbuds", "airdots", "air 2", "air2",
+            "air 3", "air3", "tws", "flipbuds", "line free", "neckband", "耳夹", "开放式"
+        ]
+        return earbudKeywords.contains(where: { lower.contains($0) })
+    }
+
     /// Deterministic UUID for Classic Bluetooth MAC addresses so preferences persist across launches.
     public static func classicUUID(for address: String) -> UUID {
         let hex = address.uppercased().filter { $0.isHexDigit }

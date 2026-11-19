@@ -52,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
                 if state.isConnected && !self.wasConnected {
                     self.hud?.show()
-                    self.proximityPopup?.showConnectedCard()
+                    self.proximityPopup?.handleConnectedTransition()
                 }
                 self.wasConnected = state.isConnected
                 self.hud?.updateIfVisible()

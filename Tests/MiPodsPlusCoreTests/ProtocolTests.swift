@@ -123,4 +123,18 @@ final class ProtocolTests: XCTestCase {
         XCTAssertNotEqual(u1, u3)
         XCTAssertTrue(u1.uuidString.hasSuffix("789987EEFC3A"))
     }
+
+    func testEarbudNameFiltering() {
+        XCTAssertTrue(DiscoveredDevice.isEarbudName("Redmi Buds 6 青春版"))
+        XCTAssertTrue(DiscoveredDevice.isEarbudName("Xiaomi Buds 5 Pro"))
+        XCTAssertTrue(DiscoveredDevice.isEarbudName("Xiaomi 开放式耳机"))
+
+        // Anonymous or non-earbud Xiaomi devices must be rejected:
+        XCTAssertFalse(DiscoveredDevice.isEarbudName(nil))
+        XCTAssertFalse(DiscoveredDevice.isEarbudName(""))
+        XCTAssertFalse(DiscoveredDevice.isEarbudName("小米设备"))
+        XCTAssertFalse(DiscoveredDevice.isEarbudName("3175049888的REDMI Turbo 5 Max"))
+        XCTAssertFalse(DiscoveredDevice.isEarbudName("Xiaomi 15 Pro"))
+        XCTAssertFalse(DiscoveredDevice.isEarbudName("Xiaomi Pad 7"))
+    }
 }
