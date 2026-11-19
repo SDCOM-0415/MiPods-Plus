@@ -142,13 +142,13 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
             }
 
             self.onEvent?(.log("正在建立经典蓝牙连接（\(name)）…"))
-            let rc = device.openConnection(self)
+            let rc = device.openConnection(self, withPageTimeout: 8000, authenticationRequired: true)
             if rc != kIOReturnSuccess {
                 self.onEvent?(.log("经典蓝牙连接发起失败（code=\(rc)）"))
                 self.setState(.disconnected("经典蓝牙连接失败"))
                 return
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
                 guard let self, self.connectToken == token, !self.isOpen, self.channel == nil else { return }
                 self.onEvent?(.log("经典蓝牙连接超时，请确认耳机已开机且未处于休眠"))
                 self.setState(.disconnected("连接超时"))

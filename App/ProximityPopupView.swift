@@ -36,6 +36,9 @@ struct ProximityPopupView: View {
         if isConnecting || state.statusDetail.contains("连接中") {
             return "正在连接耳机…"
         }
+        if state.statusDetail.contains("失败") || state.statusDetail.contains("超时") || state.statusDetail.contains("未找到") {
+            return "\(state.statusDetail)（请确认已在系统蓝牙连接音频）"
+        }
         if let dev = candidateDevice {
             var parts = [dev.needsPairing ? "配对模式耳机" : "附近发现耳机"]
             parts.append(dev.transportKind.rawValue)
@@ -185,6 +188,11 @@ struct ProximityPopupView: View {
         }
         .onChangeCompat(of: state.isConnected) { connected in
             if connected {
+                isConnecting = false
+            }
+        }
+        .onChangeCompat(of: state.statusDetail) { detail in
+            if detail.contains("失败") || detail.contains("超时") || detail.contains("未找到") {
                 isConnecting = false
             }
         }
