@@ -56,3 +56,5 @@ Tests/                  帧编解码、ConfigRecord、自定义 EQ、SAFER+ 与�
 - [JackWPP/MiPods](https://github.com/JackWPP/MiPods)（AGPL-3.0）— AirPods 式悬浮 HUD、Touch Bar 面板、三色电量环、BLE 协议与 SAFER+ 实现
 - [LeoLee0812/buds-ctl](https://github.com/LeoLee0812/buds-ctl)（AGPL-3.0）— 系统已连接外设复用、Buds 系列全量配置项读写与开机自启
 - [Tomiya233/MiEarphonePC](https://github.com/Tomiya233/MiEarphonePC) — 10 段自定义 EQ（`0x37`）、低延迟游戏模式（`0x2F`）、分耳查找响铃及托盘右键快捷菜单交互思路
+- [FxRayHughes/vivopods-mac](https://github.com/FxRayHughes/vivopods-mac) — 「先取系统已连接外设、再无过滤扫描并以品牌名/厂商广播指纹筛选」的设备发现思路
+- [JacksonsY/ab1571am-earbud-tools](https://github.com/JacksonsY/ab1571am-earbud-tools) — 已配对设备 + SDP 记录定位 RFCOMM 通道的经典蓝牙连接思路

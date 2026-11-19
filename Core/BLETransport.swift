@@ -36,6 +36,12 @@ public final class BLETransport: NSObject {
     public var preferredDeviceID: UUID?
     /// When false (e.g. RFCOMM is already active), BLE continues discovering devices without auto-connecting.
     public var allowAutoConnect = true
+    /// Diagnostic: log raw Xiaomi-related advertisements (company ID 0x038F / AF00 / Xiaomi-ish name) to the in-app log,
+    /// so beacon fingerprints of earbuds (lid open vs closed) can be compared with phones.
+    public var captureAdvertisements = false {
+        didSet { if captureAdvertisements { capturedAdKeys.removeAll() } }
+    }
+    private var capturedAdKeys: Set<String> = []
 
     private static let nonEarbudServiceUUIDs: Set<CBUUID> = [
         CBUUID(string: "FDAA"), // Xiaomi HyperOS / Android phone interconnect
@@ -264,10 +270,25 @@ extension BLETransport: CBCentralManagerDelegate {
         }
     }
 
+    private func captureAdvertisement(_ peripheral: CBPeripheral, _ ad: [String: Any], _ rssi: NSNumber) {
+        let mfr = ad[CBAdvertisementDataManufacturerDataKey] as? Data
+        let services = (ad[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]) ?? []
+        let name = (ad[CBAdvertisementDataLocalNameKey] as? String) ?? peripheral.name ?? ""
+        let isXiaomiMfr = mfr.map { $0.count >= 2 && $0[$0.startIndex] == 0x8F && $0[$0.startIndex + 1] == 0x03 } ?? false
+        let lower = name.lowercased()
+        let xiaomiName = ["xiaomi", "redmi", "小米", "红米"].contains { lower.contains($0) }
+        guard isXiaomiMfr || xiaomiName || services.contains(Self.serviceAF00) else { return }
+        let key = "\(peripheral.identifier)|\(mfr?.hexString ?? "")|\(name)"
+        guard capturedAdKeys.insert(key).inserted else { return }
+        let svc = services.map(\.uuidString).joined(separator: ",")
+        onEvent?(.log("[广播] \(name.isEmpty ? "(无名)" : name) id=\(peripheral.identifier.uuidString.prefix(8)) rssi=\(rssi) svcs=[\(svc)] mfr=\(mfr?.hexString ?? "-")"))
+    }
+
     public func centralManager(_ central: CBCentralManager,
                                didDiscover peripheral: CBPeripheral,
                                advertisementData: [String: Any],
                                rssi RSSI: NSNumber) {
+        if captureAdvertisements { captureAdvertisement(peripheral, advertisementData, RSSI) }
         guard !ignoredPeripheralIDs.contains(peripheral.identifier) else { return }
 
         let adServices = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]) ?? []

@@ -194,6 +194,15 @@ public final class MiPodsController: ObservableObject {
         rfcommTransport.disconnect()
     }
 
+    /// Diagnostic toggle: dump raw Xiaomi-related BLE advertisements into the log.
+    public var captureAdvertisements: Bool = false {
+        didSet {
+            let on = captureAdvertisements
+            bleTransport.captureAdvertisements = on
+            append(on ? "已开启广播抓取（请分别在耳机开盖/合盖时观察 [广播] 日志）" : "已关闭广播抓取")
+        }
+    }
+
     public func rescanDevices() {
         append("重新扫描附近小米耳机（经典蓝牙 + BLE）")
         refreshRFCOMMDevices(autoConnect: !state.isConnected)

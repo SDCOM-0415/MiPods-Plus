@@ -187,6 +187,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         autoCardItem.state = (proximityPopup?.isAutoPopupEnabled ?? true) ? .on : .off
         menu.addItem(autoCardItem)
 
+        let captureItem = NSMenuItem(title: "抓取 BLE 广播（诊断）", action: #selector(toggleCaptureAdvertisements), keyEquivalent: "")
+        captureItem.target = self
+        captureItem.state = controller.captureAdvertisements ? .on : .off
+        menu.addItem(captureItem)
+
         let rescanItem = NSMenuItem(title: L10n.actionRescan, action: #selector(triggerQuickRescan), keyEquivalent: "r")
         rescanItem.target = self
         menu.addItem(rescanItem)
@@ -225,6 +230,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func toggleAutoProximityPopup() {
         guard let proximityPopup else { return }
         proximityPopup.isAutoPopupEnabled.toggle()
+    }
+
+    @objc private func toggleCaptureAdvertisements() {
+        controller.captureAdvertisements.toggle()
     }
 
     @objc private func triggerQuickRescan() {
