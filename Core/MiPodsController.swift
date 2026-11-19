@@ -274,7 +274,7 @@ public final class MiPodsController: ObservableObject {
     }
 
     public func selectDevice(_ id: UUID) {
-        guard id != activeDeviceID || !state.isConnected else { return }
+        guard id != activeDeviceID || (!state.isConnected && !state.statusDetail.contains("连接中")) else { return }
         UserDefaults.standard.set(id.uuidString, forKey: Self.preferredDeviceKey)
         activeDeviceID = id
         state = MiPodsState()
@@ -296,6 +296,7 @@ public final class MiPodsController: ObservableObject {
 
         if dev.transportKind == .rfcomm, let addr = dev.classicAddress {
             bleTransport.allowAutoConnect = false
+            classicDiscovery.stop()
             activeTransportKind = .rfcomm
             rfcommTransport.connect(address: addr, channelID: dev.rfcommChannelID, deviceID: dev.id, name: dev.name)
         } else {

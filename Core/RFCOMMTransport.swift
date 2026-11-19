@@ -24,6 +24,7 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
     private var pendingDevice: IOBluetoothDevice?
     private var pendingChannelID: UInt8?
     private var pendingName: String = ""
+    private var connectToken: Int = 0
 
     public private(set) var state: BLETransport.TransportState = .idle
 
@@ -123,6 +124,8 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
                 return
             }
 
+            self.connectToken += 1
+            let token = self.connectToken
             self.activeDeviceID = deviceID
             self.pendingDevice = device
             self.pendingChannelID = channelID
@@ -134,7 +137,7 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
             self.onEvent?(.name(name))
 
             if device.isConnected() {
-                self.proceedAfterBasebandConnect(device: device, deviceID: deviceID, channelID: channelID, name: name)
+                self.proceedAfterBasebandConnect(device: device, deviceID: deviceID, channelID: channelID, name: name, token: token)
                 return
             }
 
@@ -146,29 +149,28 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
-                guard let self, self.activeDeviceID == deviceID, self.pendingDevice === device, !self.isOpen, self.channel == nil else { return }
-                if !device.isConnected() {
-                    self.onEvent?(.log("经典蓝牙连接超时，请确认耳机已开机且未处于休眠"))
-                    self.setState(.disconnected("连接超时"))
-                }
+                guard let self, self.connectToken == token, !self.isOpen, self.channel == nil else { return }
+                self.onEvent?(.log("经典蓝牙连接超时，请确认耳机已开机且未处于休眠"))
+                self.setState(.disconnected("连接超时"))
             }
         }
     }
 
     @objc func connectionComplete(_ device: IOBluetoothDevice!, status: IOReturn) {
-        guard let device, pendingDevice === device, let deviceID = activeDeviceID else { return }
+        let token = connectToken
+        guard let device, pendingDevice === device, let deviceID = activeDeviceID, channel == nil, !isOpen else { return }
         if status != kIOReturnSuccess {
             onEvent?(.log("经典蓝牙连接失败（code=\(status)）"))
             setState(.disconnected("经典蓝牙连接失败"))
             return
         }
-        proceedAfterBasebandConnect(device: device, deviceID: deviceID, channelID: pendingChannelID, name: pendingName)
+        proceedAfterBasebandConnect(device: device, deviceID: deviceID, channelID: pendingChannelID, name: pendingName, token: token)
     }
 
-    private func proceedAfterBasebandConnect(device: IOBluetoothDevice, deviceID: UUID, channelID: UInt8?, name: String) {
-        guard activeDeviceID == deviceID else { return }
+    private func proceedAfterBasebandConnect(device: IOBluetoothDevice, deviceID: UUID, channelID: UInt8?, name: String, token: Int) {
+        guard connectToken == token, activeDeviceID == deviceID, channel == nil else { return }
         if let channelID {
-            openChannel(on: device, channelID: channelID, name: name)
+            openChannel(on: device, channelID: channelID, name: name, token: token)
             return
         }
         let uuid128 = Self.fd2dBytes.withUnsafeBytes { IOBluetoothSDPUUID(bytes: $0.baseAddress, length: 16) }
@@ -176,7 +178,7 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
         if let rec = device.getServiceRecord(for: uuid128) ?? uuid16.flatMap({ device.getServiceRecord(for: $0) }) {
             var ch: BluetoothRFCOMMChannelID = 0
             if rec.getRFCOMMChannelID(&ch) == kIOReturnSuccess {
-                openChannel(on: device, channelID: ch, name: name)
+                openChannel(on: device, channelID: ch, name: name, token: token)
                 return
             }
         }
@@ -189,20 +191,22 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
     }
 
     @objc func sdpQueryComplete(_ device: IOBluetoothDevice!, status: IOReturn) {
-        guard let device, pendingDevice === device, activeDeviceID != nil else { return }
+        let token = connectToken
+        guard let device, pendingDevice === device, activeDeviceID != nil, channel == nil else { return }
         let uuid128 = Self.fd2dBytes.withUnsafeBytes { IOBluetoothSDPUUID(bytes: $0.baseAddress, length: 16) }
         let uuid16 = IOBluetoothSDPUUID(uuid16: 0xFD2D)
         let rec = device.getServiceRecord(for: uuid128) ?? uuid16.flatMap { device.getServiceRecord(for: $0) }
         var ch: BluetoothRFCOMMChannelID = 0
         if let rec, rec.getRFCOMMChannelID(&ch) == kIOReturnSuccess {
-            openChannel(on: device, channelID: ch, name: pendingName)
+            openChannel(on: device, channelID: ch, name: pendingName, token: token)
         } else {
             onEvent?(.log("未查到 0xFD2D RFCOMM 通道（status=\(status)）"))
             setState(.disconnected("未找到 0xFD2D 通道"))
         }
     }
 
-    private func openChannel(on device: IOBluetoothDevice, channelID: UInt8, name: String) {
+    private func openChannel(on device: IOBluetoothDevice, channelID: UInt8, name: String, token: Int) {
+        guard connectToken == token, channel == nil else { return }
         self.onEvent?(.log("正在打开经典蓝牙 RFCOMM 通道 \(channelID)（\(name)）"))
         var newChannel: IOBluetoothRFCOMMChannel?
         let rc = device.openRFCOMMChannelAsync(&newChannel, withChannelID: channelID, delegate: self)
@@ -212,6 +216,12 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
             return
         }
         self.channel = newChannel
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
+            guard let self, self.connectToken == token, !self.isOpen else { return }
+            self.onEvent?(.log("RFCOMM 通道 \(channelID) 打开超时（可能耳机未在系统蓝牙完成连接或正在被手机占用）"))
+            self.disconnectOnMain()
+            self.setState(.disconnected("RFCOMM 连接超时"))
+        }
     }
 
     public func disconnect() {
@@ -230,6 +240,7 @@ public final class RFCOMMTransport: NSObject, IOBluetoothRFCOMMChannelDelegate {
         self.activeDeviceID = nil
         self.pendingDevice = nil
         self.pendingChannelID = nil
+        self.connectToken += 1
         self.setState(.idle)
     }
 
