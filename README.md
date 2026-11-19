@@ -44,10 +44,19 @@ make install # 安装到 /Applications
 
 ```
 Sources/
-  MiPodsPlusCore/       协议层、SAFER+ 认证、10 段 EQ 编解码、多设备 BLE 传输与混合状态控制器
-  MiPodsPlusApp/        菜单栏 App、右键快捷菜单、类 AirPods HUD、Touch Bar 与多设备控制面板
+  MiPodsPlusCore/
+    Controller/           混合状态控制器（双通道调度、多设备切换、轮询与混合认证）
+    Models/               设备状态、能力位、音频枚举与发现模型
+    Protocol/             帧编解码、SAFER+ 认证、ConfigRecord 与 10 段 EQ 编解码
+    Transports/           CoreBluetooth BLE (0xAF00) 与 IOBluetooth RFCOMM (0xFD2D) 传输层
+  MiPodsPlusApp/
+    App/                  应用入口、菜单栏图标/右键快捷菜单与 Touch Bar 控制
+    Panel/                主控制面板与多设备切换器
+    Popups/               类 AirPods 靠近发现大卡片与顶部悬浮连接胶囊 HUD
+    Components/           三色动态电量环组件
+    Support/              macOS 12–13 隔离兼容层、UI 扩展与本地化文案
 Tests/
-  MiPodsPlusCoreTests/  帧编解码、ConfigRecord、自定义 EQ、SAFER+ 与电量解析测试
+  MiPodsPlusCoreTests/    帧编解码、ConfigRecord、自定义 EQ、SAFER+ 与设备过滤单元测试
 ```
 
 ## 致谢与许可
