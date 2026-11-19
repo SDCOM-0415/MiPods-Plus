@@ -2,6 +2,11 @@ import Foundation
 
 // MARK: - Multi-device Discovery
 
+public enum TransportKind: String, Sendable, Equatable {
+    case ble = "BLE"
+    case rfcomm = "RFCOMM"
+}
+
 public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
     public let id: UUID
     public var name: String
@@ -9,18 +14,40 @@ public struct DiscoveredDevice: Identifiable, Sendable, Equatable {
     public var isSystemConnected: Bool
     public var lastSeen: Date
     public var mfrHex: String?
+    public var transportKind: TransportKind
+    public var classicAddress: String?
+    public var rfcommChannelID: UInt8?
 
-    public init(id: UUID, name: String, rssi: Int? = nil, isSystemConnected: Bool = false, lastSeen: Date = Date(), mfrHex: String? = nil) {
+    public init(id: UUID,
+                name: String,
+                rssi: Int? = nil,
+                isSystemConnected: Bool = false,
+                lastSeen: Date = Date(),
+                mfrHex: String? = nil,
+                transportKind: TransportKind = .ble,
+                classicAddress: String? = nil,
+                rfcommChannelID: UInt8? = nil) {
         self.id = id
         self.name = name
         self.rssi = rssi
         self.isSystemConnected = isSystemConnected
         self.lastSeen = lastSeen
         self.mfrHex = mfrHex
+        self.transportKind = transportKind
+        self.classicAddress = classicAddress
+        self.rfcommChannelID = rfcommChannelID
     }
 
     public var isBudsSeries: Bool {
         name.localizedCaseInsensitiveContains("buds")
+    }
+
+    /// Deterministic UUID for Classic Bluetooth MAC addresses so preferences persist across launches.
+    public static func classicUUID(for address: String) -> UUID {
+        let hex = address.uppercased().filter { $0.isHexDigit }
+        let padded = String(hex.padding(toLength: 12, withPad: "0", startingAt: 0).prefix(12))
+        let uuidString = "0000FD2D-0000-1000-8000-\(padded)"
+        return UUID(uuidString: uuidString) ?? UUID()
     }
 }
 

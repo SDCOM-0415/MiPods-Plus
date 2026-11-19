@@ -114,4 +114,13 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(FindTarget.right.rawValue, 2)
         XCTAssertEqual(FindTarget.both.rawValue, 3)
     }
+
+    func testClassicBluetoothDeterministicUUID() {
+        let u1 = DiscoveredDevice.classicUUID(for: "78-99-87-ee-fc-3a")
+        let u2 = DiscoveredDevice.classicUUID(for: "78:99:87:EE:FC:3A")
+        let u3 = DiscoveredDevice.classicUUID(for: "11-22-33-44-55-66")
+        XCTAssertEqual(u1, u2)
+        XCTAssertNotEqual(u1, u3)
+        XCTAssertTrue(u1.uuidString.hasSuffix("789987EEFC3A"))
+    }
 }

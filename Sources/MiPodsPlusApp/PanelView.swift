@@ -170,6 +170,17 @@ struct PanelView: View {
                                 .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
                                 .lineLimit(1)
 
+                            Text(device.transportKind.rawValue)
+                                .font(.system(size: 8.5, weight: .semibold))
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1.5)
+                                .background(
+                                    Capsule().fill(
+                                        (device.transportKind == .rfcomm ? Color.blue : Color.purple).opacity(0.14)
+                                    )
+                                )
+                                .foregroundStyle(device.transportKind == .rfcomm ? .blue : .purple)
+
                             Spacer()
 
                             if device.isSystemConnected {

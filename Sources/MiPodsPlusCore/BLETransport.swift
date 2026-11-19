@@ -34,6 +34,16 @@ public final class BLETransport: NSObject {
 
     /// Optional preferred device UUID (persisted by controller for auto-reconnect).
     public var preferredDeviceID: UUID?
+    /// When false (e.g. RFCOMM is already active), BLE continues discovering devices without auto-connecting.
+    public var allowAutoConnect = true
+
+    private static let nonEarbudServiceUUIDs: Set<CBUUID> = [
+        CBUUID(string: "FDAA"), // Xiaomi HyperOS / Android phone interconnect
+        CBUUID(string: "FCC0")
+    ]
+    private static let nonEarbudNameHints = [
+        "turbo", "phone", "pad", "watch", "band", "note", "redmi k", "mix", "civi", "tv"
+    ]
 
     private let queue = DispatchQueue(label: "com.mipods.plus.ble", qos: .utility)
     private var central: CBCentralManager!
@@ -47,6 +57,7 @@ public final class BLETransport: NSObject {
 
     private var peripheralsByID: [UUID: CBPeripheral] = [:]
     private var devicesByID: [UUID: DiscoveredDevice] = [:]
+    private var ignoredPeripheralIDs: Set<UUID> = []
 
     public private(set) var state: TransportState = .idle
 
@@ -60,7 +71,7 @@ public final class BLETransport: NSObject {
     public func start() {
         queue.async {
             self.wantsScan = true
-            self.scanAndAttachIfPossible(autoConnect: true)
+            self.scanAndAttachIfPossible(autoConnect: self.allowAutoConnect)
         }
     }
 
@@ -68,9 +79,10 @@ public final class BLETransport: NSObject {
         queue.async {
             self.wantsScan = true
             self.central.stopScan()
+            self.ignoredPeripheralIDs.removeAll()
             self.devicesByID = self.devicesByID.filter { $0.key == self.peripheral?.identifier }
             self.emitDevices()
-            self.scanAndAttachIfPossible(autoConnect: self.peripheral == nil)
+            self.scanAndAttachIfPossible(autoConnect: self.allowAutoConnect && self.peripheral == nil)
         }
     }
 
@@ -256,14 +268,29 @@ extension BLETransport: CBCentralManagerDelegate {
                                didDiscover peripheral: CBPeripheral,
                                advertisementData: [String: Any],
                                rssi RSSI: NSNumber) {
+        guard !ignoredPeripheralIDs.contains(peripheral.identifier) else { return }
+
+        let adServices = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]) ?? []
+        if adServices.contains(where: { Self.nonEarbudServiceUUIDs.contains($0) }) {
+            ignoredPeripheralIDs.insert(peripheral.identifier)
+            return
+        }
+
+        let adName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
+        let rawName = (adName?.isEmpty == false ? adName : peripheral.name) ?? ""
+        let lowerName = rawName.lowercased()
+        if !lowerName.isEmpty && Self.nonEarbudNameHints.contains(where: { lowerName.contains($0) }) && !lowerName.contains("buds") {
+            ignoredPeripheralIDs.insert(peripheral.identifier)
+            return
+        }
+
         let mfrData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
         var isXiaomi = false
         if let mfrData, mfrData.count >= 2 {
             let company = UInt16(mfrData[0]) | (UInt16(mfrData[1]) << 8)
             isXiaomi = company == Self.xiaomiCompanyID
         }
-        let adName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
-        let name = (adName?.isEmpty == false ? adName : peripheral.name) ?? "小米设备"
+        let name = rawName.isEmpty ? "小米设备" : rawName
         if !isXiaomi && (isXiaomiName(adName) || isXiaomiName(peripheral.name)) {
             isXiaomi = true
         }
@@ -278,7 +305,7 @@ extension BLETransport: CBCentralManagerDelegate {
         devicesByID[peripheral.identifier] = item
         emitDevices()
 
-        guard self.peripheral == nil else { return }
+        guard allowAutoConnect, self.peripheral == nil else { return }
         if let preferredDeviceID, preferredDeviceID != peripheral.identifier {
             return
         }
@@ -316,8 +343,17 @@ extension BLETransport: CBCentralManagerDelegate {
 extension BLETransport: CBPeripheralDelegate {
 
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        guard let services = peripheral.services, !services.isEmpty else {
-            onEvent?(.log("未发现服务：\(error?.localizedDescription ?? "空")"))
+        let services = peripheral.services ?? []
+        let hasAF00 = services.contains(where: { $0.uuid == Self.serviceAF00 })
+        guard hasAF00 else {
+            onEvent?(.log("外设 \(peripheral.name ?? peripheral.identifier.uuidString) 不含 AF00 耳机控制服务，已忽略"))
+            ignoredPeripheralIDs.insert(peripheral.identifier)
+            devicesByID.removeValue(forKey: peripheral.identifier)
+            peripheralsByID.removeValue(forKey: peripheral.identifier)
+            emitDevices()
+            central.cancelPeripheralConnection(peripheral)
+            resetChannelState()
+            scanAndAttachIfPossible(autoConnect: allowAutoConnect)
             return
         }
         for service in services {

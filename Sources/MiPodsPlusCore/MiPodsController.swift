@@ -116,7 +116,11 @@ public final class MiPodsController: ObservableObject {
         return false
     }
 
-    private let transport = BLETransport()
+    private let bleTransport = BLETransport()
+    private let rfcommTransport = RFCOMMTransport()
+    private var activeTransportKind: TransportKind = .ble
+    private var bleDevices: [DiscoveredDevice] = []
+    private var rfcommDevices: [DiscoveredDevice] = []
     private var connectTimeoutTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var pendingCommandAfterAuth: (() -> Void)?
@@ -132,32 +136,72 @@ public final class MiPodsController: ObservableObject {
     public init() {
         if let saved = UserDefaults.standard.string(forKey: Self.preferredDeviceKey),
            let uuid = UUID(uuidString: saved) {
-            transport.preferredDeviceID = uuid
+            bleTransport.preferredDeviceID = uuid
             activeDeviceID = uuid
         }
-        transport.onEvent = { [weak self] event in
-            Task { @MainActor [weak self] in self?.handle(event) }
+        bleTransport.onEvent = { [weak self] event in
+            Task { @MainActor [weak self] in self?.handle(event, from: .ble) }
+        }
+        rfcommTransport.onEvent = { [weak self] event in
+            Task { @MainActor [weak self] in self?.handle(event, from: .rfcomm) }
         }
     }
 
     // MARK: - Lifecycle & Multi-Device
 
     public func start() {
-        append("开始多设备扫描（系统已连接 + BLE 广播）")
-        transport.start()
+        append("开始多设备扫描（经典蓝牙 RFCOMM 0xFD2D + BLE 0xAF00）")
+        refreshRFCOMMDevices(autoConnect: true)
+        bleTransport.allowAutoConnect = !state.isConnected && activeTransportKind != .rfcomm
+        bleTransport.start()
         scheduleConnectFallback()
     }
 
     public func stop() {
         pollTask?.cancel()
         connectTimeoutTask?.cancel()
-        transport.stop()
+        bleTransport.stop()
+        rfcommTransport.disconnect()
     }
 
     public func rescanDevices() {
-        append("重新扫描附近小米耳机")
-        transport.rescan()
+        append("重新扫描附近小米耳机（经典蓝牙 + BLE）")
+        refreshRFCOMMDevices(autoConnect: !state.isConnected)
+        bleTransport.allowAutoConnect = !state.isConnected
+        bleTransport.rescan()
         scheduleConnectFallback()
+    }
+
+    private func refreshRFCOMMDevices(autoConnect: Bool) {
+        let found = rfcommTransport.discoverPairedDevices()
+        rfcommDevices = found
+        mergeDiscoveredDevices()
+
+        guard autoConnect, !state.isConnected else { return }
+        let connected = found.filter { $0.isSystemConnected }
+        let preferred = connected.first(where: { $0.id == activeDeviceID }) ?? connected.first
+        if let target = preferred, let addr = target.classicAddress, let ch = target.rfcommChannelID {
+            activeTransportKind = .rfcomm
+            bleTransport.allowAutoConnect = false
+            append("发现已连接的经典蓝牙耳机 \(target.name)（RFCOMM 通道 \(ch)），直接连接")
+            rfcommTransport.connect(address: addr, channelID: ch, deviceID: target.id, name: target.name)
+        }
+    }
+
+    private func mergeDiscoveredDevices() {
+        var combined: [DiscoveredDevice] = []
+        var seen = Set<UUID>()
+        for dev in rfcommDevices + bleDevices {
+            if seen.insert(dev.id).inserted {
+                combined.append(dev)
+            }
+        }
+        discoveredDevices = combined.sorted { lhs, rhs in
+            if lhs.id == activeDeviceID { return true }
+            if rhs.id == activeDeviceID { return false }
+            if lhs.isSystemConnected != rhs.isSystemConnected { return lhs.isSystemConnected }
+            return (lhs.rssi ?? -127) > (rhs.rssi ?? -127)
+        }
     }
 
     public func selectDevice(_ id: UUID) {
@@ -165,12 +209,28 @@ public final class MiPodsController: ObservableObject {
         UserDefaults.standard.set(id.uuidString, forKey: Self.preferredDeviceKey)
         activeDeviceID = id
         state = MiPodsState()
-        if let dev = discoveredDevices.first(where: { $0.id == id }) {
-            state.deviceName = dev.name
+
+        guard let dev = discoveredDevices.first(where: { $0.id == id }) else {
+            bleTransport.connect(deviceID: id)
+            return
         }
-        append("切换设备 → \(state.deviceName.isEmpty ? id.uuidString : state.deviceName)")
-        transport.connect(deviceID: id)
-        scheduleConnectFallback()
+
+        state.deviceName = dev.name
+        append("切换设备 → \(dev.name)（\(dev.transportKind.rawValue)）")
+
+        if dev.transportKind == .rfcomm, let addr = dev.classicAddress, let ch = dev.rfcommChannelID {
+            bleTransport.allowAutoConnect = false
+            bleTransport.stop()
+            activeTransportKind = .rfcomm
+            rfcommTransport.connect(address: addr, channelID: ch, deviceID: dev.id, name: dev.name)
+        } else {
+            rfcommTransport.disconnect()
+            activeTransportKind = .ble
+            bleTransport.allowAutoConnect = true
+            bleTransport.preferredDeviceID = id
+            bleTransport.connect(deviceID: id)
+            scheduleConnectFallback()
+        }
     }
 
     public func refresh() {
@@ -179,8 +239,8 @@ public final class MiPodsController: ObservableObject {
             rescanDevices()
             return
         }
-        transport.send(.getDeviceInfo, payload: [0xFF, 0xFF, 0xFF, 0xFF])
-        transport.send(.getRunInfo, payload: [0xFF, 0xFF, 0xFF, 0xFF])
+        sendFrame(.getDeviceInfo, payload: [0xFF, 0xFF, 0xFF, 0xFF])
+        sendFrame(.getRunInfo, payload: [0xFF, 0xFF, 0xFF, 0xFF])
         if state.isAuthenticated {
             requestExtendedConfigs()
         }
@@ -200,6 +260,24 @@ public final class MiPodsController: ObservableObject {
         }
     }
 
+    private func sendFrame(_ opcode: Opcode, payload: [UInt8]) {
+        switch activeTransportKind {
+        case .ble:
+            bleTransport.send(opcode, payload: payload)
+        case .rfcomm:
+            rfcommTransport.send(opcode, payload: payload)
+        }
+    }
+
+    private func replyFrame(_ opcode: UInt8, sequence: UInt8, payload: [UInt8] = []) {
+        switch activeTransportKind {
+        case .ble:
+            bleTransport.reply(opcode, sequence: sequence, payload: payload)
+        case .rfcomm:
+            rfcommTransport.reply(opcode, sequence: sequence, payload: payload)
+        }
+    }
+
     // MARK: - Hybrid Authentication
 
     public func requestAuthentication() {
@@ -207,7 +285,7 @@ public final class MiPodsController: ObservableObject {
         state.isAuthenticating = true
         let challenge = SAFER.randomChallenge()
         append("发起 SAFER+ 认证以解锁高级控制")
-        transport.send(.authChallenge, payload: [0x01] + challenge)
+        sendFrame(.authChallenge, payload: [0x01] + challenge)
     }
 
     private func shouldAutoAuthenticate() -> Bool {
@@ -235,7 +313,7 @@ public final class MiPodsController: ObservableObject {
         state.noiseMode = mode
         performAuthenticatedWrite { [weak self] in
             self?.append("切换模式 → \(mode.displayTitle)")
-            self?.transport.send(.setANC, payload: [0x02, 0x04, mode.rawByte])
+            self?.sendFrame(.setANC, payload: [0x02, 0x04, mode.rawByte])
         }
     }
 
@@ -292,14 +370,14 @@ public final class MiPodsController: ObservableObject {
     public func setWearDetect(_ on: Bool) {
         state.wearDetect = on
         performAuthenticatedWrite { [weak self] in
-            self?.transport.send(.setANC, payload: [0x02, 0x06, on ? 0x00 : 0x01])
+            self?.sendFrame(.setANC, payload: [0x02, 0x06, on ? 0x00 : 0x01])
         }
     }
 
     public func setHotword(_ on: Bool) {
         state.hotword = on
         performAuthenticatedWrite { [weak self] in
-            self?.transport.send(.setANC, payload: [0x02, 0x02, on ? 0x01 : 0x00])
+            self?.sendFrame(.setANC, payload: [0x02, 0x02, on ? 0x01 : 0x00])
         }
     }
 
@@ -400,11 +478,11 @@ public final class MiPodsController: ObservableObject {
     }
 
     private func sendSetConfig(_ id: UInt16, _ value: [UInt8]) {
-        transport.send(.setConfig, payload: ConfigRecord.encodeSet(id: id, value: value))
+        sendFrame(.setConfig, payload: ConfigRecord.encodeSet(id: id, value: value))
     }
 
     private func requestExtendedConfigs() {
-        transport.send(.getConfig, payload: ConfigRecord.encodeGet(ids: Self.statusConfigIDs))
+        sendFrame(.getConfig, payload: ConfigRecord.encodeGet(ids: Self.statusConfigIDs))
     }
 
     private func schedulePostWriteRefresh() {
@@ -416,26 +494,47 @@ public final class MiPodsController: ObservableObject {
 
     // MARK: - Event Handling
 
-    private func handle(_ event: BLETransport.Event) {
+    private func handle(_ event: BLETransport.Event, from kind: TransportKind) {
         switch event {
+        case .devicesUpdated(let devices):
+            if kind == .ble {
+                bleDevices = devices
+                mergeDiscoveredDevices()
+            }
+
         case .stateChanged(let newState):
             switch newState {
             case .connected:
+                if kind != activeTransportKind {
+                    if state.isConnected { return }
+                    activeTransportKind = kind
+                }
+                if kind == .rfcomm {
+                    bleTransport.allowAutoConnect = false
+                }
                 state.isConnected = true
-                state.statusDetail = "BLE 已连接"
+                state.statusDetail = kind == .rfcomm ? "RFCOMM 已连接" : "BLE 已连接"
                 connectTimeoutTask?.cancel()
                 beginSession()
             case .connecting:
-                state.statusDetail = "连接中…"
+                guard kind == activeTransportKind || !state.isConnected else { return }
+                state.statusDetail = kind == .rfcomm ? "RFCOMM 连接中…" : "连接中…"
             case .scanning:
+                guard !state.isConnected else { return }
                 state.statusDetail = "正在搜索小米耳机…"
             case .disconnected(let reason):
+                guard kind == activeTransportKind else { return }
                 state.isConnected = false
                 state.isAuthenticated = false
                 state.isAuthenticating = false
                 state.statusDetail = reason ?? "未连接"
                 pollTask?.cancel()
+                if kind == .rfcomm {
+                    bleTransport.allowAutoConnect = true
+                    refreshRFCOMMDevices(autoConnect: false)
+                }
             case .idle:
+                guard kind == activeTransportKind else { return }
                 state.isConnected = false
                 state.isAuthenticated = false
                 state.isAuthenticating = false
@@ -443,23 +542,28 @@ public final class MiPodsController: ObservableObject {
                 pollTask?.cancel()
             }
 
-        case .devicesUpdated(let devices):
-            discoveredDevices = devices
-
         case .activeDeviceChanged(let id, let name):
+            guard kind == activeTransportKind || !state.isConnected else { return }
             activeDeviceID = id
             if let name, !name.isEmpty { state.deviceName = name }
+            mergeDiscoveredDevices()
 
         case .ready(let write, let notify):
-            append("GATT 就绪（写 \(write) / 收 \(notify)）")
+            guard kind == activeTransportKind else { return }
+            append(kind == .rfcomm
+                   ? "RFCOMM 通道就绪（\(write) / \(notify)）"
+                   : "GATT 就绪（写 \(write) / 收 \(notify)）")
 
         case .name(let name):
+            guard kind == activeTransportKind else { return }
             state.deviceName = name
 
         case .gattBattery(let bytes):
+            guard kind == activeTransportKind else { return }
             append("GATT 电量 \(bytes.hexString)")
 
         case .message(let message):
+            guard kind == activeTransportKind else { return }
             handle(message)
 
         case .log(let line):
@@ -470,8 +574,8 @@ public final class MiPodsController: ObservableObject {
     private func beginSession() {
         pollTask?.cancel()
         // Always fetch battery & basic info first (safe for all models).
-        transport.send(.getDeviceInfo, payload: [0xFF, 0xFF, 0xFF, 0xFF])
-        transport.send(.getRunInfo, payload: [0xFF, 0xFF, 0xFF, 0xFF])
+        sendFrame(.getDeviceInfo, payload: [0xFF, 0xFF, 0xFF, 0xFF])
+        sendFrame(.getRunInfo, payload: [0xFF, 0xFF, 0xFF, 0xFF])
         startPolling()
 
         if shouldAutoAuthenticate() {
@@ -489,7 +593,7 @@ public final class MiPodsController: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(Self.pollInterval * 1_000_000_000))
                 guard let self, self.state.isConnected else { return }
-                self.transport.send(.getDeviceInfo, payload: [0xFF, 0xFF, 0xFF, 0xFF])
+                self.sendFrame(.getDeviceInfo, payload: [0xFF, 0xFF, 0xFF, 0xFF])
             }
         }
     }
@@ -499,8 +603,11 @@ public final class MiPodsController: ObservableObject {
         connectTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             guard let self, !self.state.isConnected else { return }
-            self.append("未扫描到广播，尝试复用系统已连接外设")
-            self.transport.connectKnownPeripheral()
+            self.append("未建立连接，重新检索经典蓝牙 RFCOMM 与系统已连 BLE 外设")
+            self.refreshRFCOMMDevices(autoConnect: true)
+            if !self.state.isConnected && self.activeTransportKind != .rfcomm {
+                self.bleTransport.connectKnownPeripheral()
+            }
         }
     }
 
@@ -512,15 +619,15 @@ public final class MiPodsController: ObservableObject {
         switch message.opcode {
         case Opcode.authChallenge.rawValue:
             if message.type == .response {
-                transport.send(.authConfirm, payload: [0x01, 0x00])
+                sendFrame(.authConfirm, payload: [0x01, 0x00])
             } else if message.payload.count >= 17,
                       let answer = SAFER.response(to: Array(message.payload[1..<17])) {
-                transport.reply(Opcode.authChallenge.rawValue, sequence: message.sequence, payload: [0x01] + answer)
+                replyFrame(Opcode.authChallenge.rawValue, sequence: message.sequence, payload: [0x01] + answer)
             }
 
         case Opcode.authConfirm.rawValue:
             if message.type.isRequest {
-                transport.reply(Opcode.authConfirm.rawValue, sequence: message.sequence, payload: [0x01])
+                replyFrame(Opcode.authConfirm.rawValue, sequence: message.sequence, payload: [0x01])
             }
             state.isAuthenticating = false
             if !state.isAuthenticated {
@@ -548,7 +655,7 @@ public final class MiPodsController: ObservableObject {
         case Opcode.reportStatus.rawValue:
             apply(StatusUpdate.parse(message.payload))
             if message.type.isRequest {
-                transport.reply(message.opcode, sequence: message.sequence)
+                replyFrame(message.opcode, sequence: message.sequence)
             }
 
         case Opcode.getConfig.rawValue:
@@ -557,7 +664,7 @@ public final class MiPodsController: ObservableObject {
         case Opcode.notifyConfig.rawValue:
             apply(ConfigRecord.parse(message.payload))
             if message.type.isRequest {
-                transport.reply(message.opcode, sequence: message.sequence)
+                replyFrame(message.opcode, sequence: message.sequence)
             }
 
         case Opcode.setANC.rawValue, Opcode.setConfig.rawValue:
@@ -565,7 +672,7 @@ public final class MiPodsController: ObservableObject {
 
         default:
             if message.type.isRequest {
-                transport.reply(message.opcode, sequence: message.sequence)
+                replyFrame(message.opcode, sequence: message.sequence)
             }
         }
     }
